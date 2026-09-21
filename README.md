@@ -155,3 +155,9 @@ Stack: AGP **8.7.3**, Kotlin **2.0.21**, Compose BOM **2024.10.01**, Room, DataS
 Use respectfully. Obey 4chan’s robots/API guidance and local law. This app is for archiving media from threads **you** choose to watch.
 
 Desktop cousins: [threadsyphon (Windows)](https://github.com/cicalooo/threadsyphon), [threadsyphon-linux](https://github.com/cicalooo/threadsyphon-linux).
+
+## Sideload release signing
+
+Release APKs are signed for sideload only (not Play Store). Create a local
+`keystore.properties` (gitignored) pointing at your release `.jks` — see
+`app/build.gradle.kts`. Never commit the keystore or passwords.
