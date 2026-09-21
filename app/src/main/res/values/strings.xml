@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ThreadSyphon</string>
+    <string name="share_to_watch">Watch with ThreadSyphon</string>
+    <string name="channel_watch_name">Watching</string>
+    <string name="channel_watch_desc">Persistent notification while threads are watched or downloaded</string>
+    <string name="channel_events_name">Events</string>
+    <string name="channel_events_desc">New media, scout matches, errors</string>
+    <string name="notif_watching">Watching %1$d thread(s)</string>
+    <string name="notif_pause_all">Pause all</string>
+    <string name="notif_open">Open</string>
+</resources>

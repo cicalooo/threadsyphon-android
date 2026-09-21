@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Used when mipmap bitmap densities are absent; API 26+ uses adaptive icons. -->
+</resources>

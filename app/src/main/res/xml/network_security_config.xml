@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- 4cdn API + CDN are HTTPS-only -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">4cdn.org</domain>
+        <domain includeSubdomains="true">4chan.org</domain>
+        <domain includeSubdomains="true">4channel.org</domain>
+    </domain-config>
+</network-security-config>

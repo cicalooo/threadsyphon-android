@@ -1,0 +1,3 @@
+-keep class com.threadsyphon.android.data.db.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
