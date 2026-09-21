@@ -2,8 +2,8 @@ package com.threadsyphon.android.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Rule
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -30,9 +30,9 @@ import com.threadsyphon.android.ui.threads.ThreadDetailScreen
 import com.threadsyphon.android.ui.threads.ThreadListScreen
 
 sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
-    data object Threads : Dest("threads", "Threads", Icons.Default.List)
+    data object Threads : Dest("threads", "Threads", Icons.AutoMirrored.Filled.List)
     data object Find : Dest("find", "Find", Icons.Default.Search)
-    data object Rules : Dest("rules", "Rules", Icons.Default.Rule)
+    data object Rules : Dest("rules", "Rules", Icons.AutoMirrored.Filled.Rule)
     data object Settings : Dest("settings", "Settings", Icons.Default.Settings)
 }
 

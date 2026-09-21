@@ -21,7 +21,7 @@ object Constants {
     const val MAX_JSON_BYTES = 16 * 1024 * 1024
 }
 
-enum class WatchStatus { Ready, Watching, Downloading, Paused, Complete, Error }
+enum class WatchStatus { Ready, Watching, Downloading, Paused, Complete, Error, StoppedLowStorage }
 
 enum class DownloadLocation { AppExternal, MediaStoreDownloads }
 
@@ -40,6 +40,7 @@ data class AppSettings(
     val dynamicColor: Boolean = true,
     val darkTheme: Boolean = false,
     val followSystemTheme: Boolean = true,
+    val scoutIntervalSec: Int = 120,
 ) {
     fun normalized(): AppSettings = copy(
         defaultInterval = defaultInterval.coerceIn(15, 3600),
@@ -48,7 +49,8 @@ data class AppSettings(
         maxFileMb = maxFileMb.coerceAtLeast(0),
         rateGap = rateGap.coerceIn(0.25f, 10f),
         cdnGap = cdnGap.coerceIn(0.05f, 5f),
-        wifiOnly = !allowMobileData,
+        wifiOnly = if (allowMobileData) false else wifiOnly,
+        scoutIntervalSec = scoutIntervalSec.coerceIn(60, 3600),
     )
 }
 
@@ -68,6 +70,19 @@ fun parseThreadUrl(url: String): ParsedThreadUrl {
     val threadNo = match.groupValues[2].toLong()
     require(threadNo > 0) { "Thread number must be a positive integer." }
     return ParsedThreadUrl(board, threadNo, "https://boards.4chan.org/$board/thread/$threadNo")
+}
+
+fun extractThreadUrlFromText(text: String): String? {
+    val regex = Regex(
+        """https?://(?:boards\.)?(?:4chan|4channel)\.org/[a-z0-9]+/thread/\d+[^\s]*""",
+        RegexOption.IGNORE_CASE,
+    )
+    regex.find(text)?.value?.let { return it }
+    val bare = Regex(
+        """(?:boards\.)?(?:4chan|4channel)\.org/[a-z0-9]+/thread/\d+[^\s]*""",
+        RegexOption.IGNORE_CASE,
+    )
+    return bare.find(text)?.value?.let { "https://$it" }
 }
 
 fun wantMedia(extension: String, mediaFilter: String): Boolean {

@@ -1,6 +1,6 @@
 # ThreadSyphon Android
 
-Native **Kotlin + Jetpack Compose (Material 3)** port of [ThreadSyphon](https://github.com/cicalooo/threadsyphon-source) — a 4chan thread watcher / media saver.
+Native **Kotlin + Jetpack Compose (Material 3)** port of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
 
 No accounts. No telemetry. HTTP is only used to check threads (`a.4cdn.org`), search catalogs, and download media you asked for (`i.4cdn.org`).
 
@@ -154,4 +154,4 @@ Stack: AGP **8.7.3**, Kotlin **2.0.21**, Compose BOM **2024.10.01**, Room, DataS
 
 Use respectfully. Obey 4chan’s robots/API guidance and local law. This app is for archiving media from threads **you** choose to watch.
 
-Desktop cousins: [threadsyphon-source (Windows)](https://github.com/cicalooo/threadsyphon-source), [threadsyphon-linux](https://github.com/cicalooo/threadsyphon-linux).
+Desktop cousins: [threadsyphon (Windows)](https://github.com/cicalooo/threadsyphon), [threadsyphon-linux](https://github.com/cicalooo/threadsyphon-linux).

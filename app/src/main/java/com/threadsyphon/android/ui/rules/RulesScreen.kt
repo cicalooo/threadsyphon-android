@@ -52,7 +52,7 @@ fun RulesScreen(repository: WatchRepository) {
             FloatingActionButton(onClick = { showAdd = true }) { Icon(Icons.Default.Add, "Add") }
         },
     ) { padding ->
-        Column(Modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
             Text(
                 "Watchdogs scout the catalog while the watch service is running.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -64,8 +64,8 @@ fun RulesScreen(repository: WatchRepository) {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(rules, key = { it.id }) { rule ->
                         Card(modifier = Modifier.fillMaxWidth()) {
-                            Row(Modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier = Modifier.weight(1f)) {
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(rule.name, style = MaterialTheme.typography.titleSmall)
                                     Text("/${rule.board}/ · ${rule.query}", style = MaterialTheme.typography.bodySmall)
                                     Text("every ${rule.intervalSec}s · limit ${rule.matchLimit}", style = MaterialTheme.typography.labelSmall)

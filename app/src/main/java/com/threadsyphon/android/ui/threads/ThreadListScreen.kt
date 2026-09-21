@@ -85,14 +85,14 @@ fun ThreadListScreen(repository: WatchRepository, onOpenDetail: (String) -> Unit
             FloatingActionButton(onClick = { showAdd = true; addError = null }) { Icon(Icons.Default.Add, "Add") }
         },
     ) { padding ->
-        Column(Modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (lowStorage) {
-                Card(Modifier = Modifier.padding(12.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Card(modifier = Modifier.padding(12.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Text("Low storage — downloads may fail.", Modifier.padding(12.dp))
                 }
             }
             if (threads.isEmpty()) {
-                Column(Modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("No threads yet", style = MaterialTheme.typography.titleMedium)
                     Text("Paste a 4chan URL, or Share To ThreadSyphon.", Modifier.padding(top = 8.dp))
                 }
@@ -148,10 +148,10 @@ fun ThreadListScreen(repository: WatchRepository, onOpenDetail: (String) -> Unit
 @Composable
 private fun ThreadRow(t: WatchedThreadEntity) {
     val title = t.label.ifBlank { t.subject }.ifBlank { "/${t.board}/ · ${t.threadNo}" }
-    Column(Modifier = Modifier.padding(12.dp)) {
+    Column(modifier = Modifier.padding(12.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text("/${t.board}/${t.threadNo}", style = MaterialTheme.typography.bodySmall)
-        Row(Modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(statusLabel(t.status), style = MaterialTheme.typography.labelMedium)
             Text("${t.savedCount} saved", style = MaterialTheme.typography.labelMedium)
         }
@@ -167,6 +167,7 @@ fun statusLabel(status: String): String = when (status) {
     WatchStatus.Paused.name -> "Paused"
     WatchStatus.Complete.name -> "Complete"
     WatchStatus.Error.name -> "Error"
+    WatchStatus.StoppedLowStorage.name -> "Stopped (low storage)"
     else -> status
 }
 

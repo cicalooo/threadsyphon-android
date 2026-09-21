@@ -10,12 +10,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class ThreadSyphonApp : Application() {
+    companion object {
+        lateinit var instance: ThreadSyphonApp
+            private set
+    }
+
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     lateinit var repository: WatchRepository
         private set
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         NotificationHelper.ensureChannels(this)
         repository = WatchRepository(this)
         applicationScope.launch(Dispatchers.IO) {

@@ -46,7 +46,7 @@ fun SettingsScreen(repository: WatchRepository) {
     val settings by repository.settings().collectAsState(initial = AppSettings())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var ignoringBattery by remember { mutableStateOf(BatteryHelper.isIgnoringOptimizations(context)) }
+    var ignoringBattery by remember { mutableStateOf(BatteryHelper.isIgnoringBatteryOptimizations(context)) }
     var intervalText by remember(settings.defaultInterval) { mutableStateOf(settings.defaultInterval.toString()) }
     var maxMbText by remember(settings.maxFileMb) { mutableStateOf(settings.maxFileMb.toString()) }
 
@@ -124,9 +124,9 @@ fun SettingsScreen(repository: WatchRepository) {
             )
             Text(if (ignoringBattery) "Status: unrestricted" else "Status: optimized (may delay checks)", style = MaterialTheme.typography.labelLarge)
             Button(onClick = {
-                try { context.startActivity(BatteryHelper.requestIgnoreOptimizationsIntent(context)) }
-                catch (_: Exception) { context.startActivity(BatteryHelper.openBatterySettingsIntent(context)) }
-                ignoringBattery = BatteryHelper.isIgnoringOptimizations(context)
+                try { BatteryHelper.requestIgnoreBatteryOptimizations(context) }
+                catch (_: Exception) { BatteryHelper.openBatterySettings(context) }
+                ignoringBattery = BatteryHelper.isIgnoringBatteryOptimizations(context)
                 Toast.makeText(context, "Check battery setting, then return", Toast.LENGTH_SHORT).show()
             }) { Text("Request ignore battery optimizations") }
 

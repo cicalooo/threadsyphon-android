@@ -92,7 +92,7 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             if (t.nextCheckAt > 0) Text("Next check: ${formatTime(t.nextCheckAt)}")
             if (t.lastError.isNotBlank()) Text(t.lastError, color = MaterialTheme.colorScheme.error)
             Text("Folder: ${t.folderRelative.ifBlank { "${t.board}/${t.threadNo}" }}", style = MaterialTheme.typography.bodySmall)
-            Row(Modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch {
                         repository.setPaused(listOf(t.id), false)
@@ -104,7 +104,7 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
                     Icon(Icons.Default.Pause, null); Text(" Pause")
                 }
             }
-            Row(Modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { scope.launch { repository.checkNow(listOf(t.id)) } }) {
                     Icon(Icons.Default.Refresh, null); Text(" Check")
                 }

@@ -27,54 +27,40 @@ class SettingsRepository(private val context: Context) {
         val RATE_GAP = floatPreferencesKey("rate_gap")
         val CDN_GAP = floatPreferencesKey("cdn_gap")
         val ALLOW_MOBILE = booleanPreferencesKey("allow_mobile_data")
+        val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         val DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val DARK_THEME = booleanPreferencesKey("dark_theme")
         val FOLLOW_SYSTEM = booleanPreferencesKey("follow_system_theme")
+        val SCOUT_INTERVAL = intPreferencesKey("scout_interval")
     }
 
-    val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
-        AppSettings(
-            defaultInterval = p[Keys.INTERVAL] ?: 30,
-            notifications = p[Keys.NOTIFICATIONS] ?: true,
-            mediaFilter = p[Keys.MEDIA_FILTER] ?: "all",
-            maxFileMb = p[Keys.MAX_FILE_MB] ?: 0,
-            filenameMode = p[Keys.FILENAME_MODE] ?: "original",
-            verifyMd5 = p[Keys.VERIFY_MD5] ?: true,
-            rateGap = p[Keys.RATE_GAP] ?: 1.0f,
-            cdnGap = p[Keys.CDN_GAP] ?: 0.25f,
-            allowMobileData = p[Keys.ALLOW_MOBILE] ?: false,
-            downloadLocation = when (p[Keys.DOWNLOAD_LOCATION]) {
-                DownloadLocation.MediaStoreDownloads.name -> DownloadLocation.MediaStoreDownloads
-                else -> DownloadLocation.AppExternal
-            },
-            dynamicColor = p[Keys.DYNAMIC_COLOR] ?: true,
-            darkTheme = p[Keys.DARK_THEME] ?: false,
-            followSystemTheme = p[Keys.FOLLOW_SYSTEM] ?: true,
-        ).normalized()
-    }
+    private fun Preferences.toSettings(): AppSettings = AppSettings(
+        defaultInterval = this[Keys.INTERVAL] ?: 30,
+        notifications = this[Keys.NOTIFICATIONS] ?: true,
+        mediaFilter = this[Keys.MEDIA_FILTER] ?: "all",
+        maxFileMb = this[Keys.MAX_FILE_MB] ?: 0,
+        filenameMode = this[Keys.FILENAME_MODE] ?: "original",
+        verifyMd5 = this[Keys.VERIFY_MD5] ?: true,
+        rateGap = this[Keys.RATE_GAP] ?: 1.0f,
+        cdnGap = this[Keys.CDN_GAP] ?: 0.25f,
+        allowMobileData = this[Keys.ALLOW_MOBILE] ?: false,
+        wifiOnly = this[Keys.WIFI_ONLY] ?: true,
+        downloadLocation = when (this[Keys.DOWNLOAD_LOCATION]) {
+            DownloadLocation.MediaStoreDownloads.name -> DownloadLocation.MediaStoreDownloads
+            else -> DownloadLocation.AppExternal
+        },
+        dynamicColor = this[Keys.DYNAMIC_COLOR] ?: true,
+        darkTheme = this[Keys.DARK_THEME] ?: false,
+        followSystemTheme = this[Keys.FOLLOW_SYSTEM] ?: true,
+        scoutIntervalSec = this[Keys.SCOUT_INTERVAL] ?: 120,
+    ).normalized()
+
+    val settings: Flow<AppSettings> = context.dataStore.data.map { it.toSettings() }
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         context.dataStore.edit { prefs ->
-            val current = AppSettings(
-                defaultInterval = prefs[Keys.INTERVAL] ?: 30,
-                notifications = prefs[Keys.NOTIFICATIONS] ?: true,
-                mediaFilter = prefs[Keys.MEDIA_FILTER] ?: "all",
-                maxFileMb = prefs[Keys.MAX_FILE_MB] ?: 0,
-                filenameMode = prefs[Keys.FILENAME_MODE] ?: "original",
-                verifyMd5 = prefs[Keys.VERIFY_MD5] ?: true,
-                rateGap = prefs[Keys.RATE_GAP] ?: 1.0f,
-                cdnGap = prefs[Keys.CDN_GAP] ?: 0.25f,
-                allowMobileData = prefs[Keys.ALLOW_MOBILE] ?: false,
-                downloadLocation = when (prefs[Keys.DOWNLOAD_LOCATION]) {
-                    DownloadLocation.MediaStoreDownloads.name -> DownloadLocation.MediaStoreDownloads
-                    else -> DownloadLocation.AppExternal
-                },
-                dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: true,
-                darkTheme = prefs[Keys.DARK_THEME] ?: false,
-                followSystemTheme = prefs[Keys.FOLLOW_SYSTEM] ?: true,
-            ).normalized()
-            val next = transform(current).normalized()
+            val next = transform(prefs.toSettings()).normalized()
             prefs[Keys.INTERVAL] = next.defaultInterval
             prefs[Keys.NOTIFICATIONS] = next.notifications
             prefs[Keys.MEDIA_FILTER] = next.mediaFilter
@@ -84,10 +70,12 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.RATE_GAP] = next.rateGap
             prefs[Keys.CDN_GAP] = next.cdnGap
             prefs[Keys.ALLOW_MOBILE] = next.allowMobileData
+            prefs[Keys.WIFI_ONLY] = next.wifiOnly
             prefs[Keys.DOWNLOAD_LOCATION] = next.downloadLocation.name
             prefs[Keys.DYNAMIC_COLOR] = next.dynamicColor
             prefs[Keys.DARK_THEME] = next.darkTheme
             prefs[Keys.FOLLOW_SYSTEM] = next.followSystemTheme
+            prefs[Keys.SCOUT_INTERVAL] = next.scoutIntervalSec
         }
     }
 }

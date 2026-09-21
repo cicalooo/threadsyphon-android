@@ -27,7 +27,6 @@ class NetworkMonitor(context: Context) {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    /** True when downloads are allowed given wifi-only preference. */
     fun downloadsAllowed(wifiOnly: Boolean, allowMobileData: Boolean): Boolean {
         if (!hasValidatedInternet()) return false
         if (allowMobileData || !wifiOnly) return true
@@ -39,12 +38,8 @@ class NetworkMonitor(context: Context) {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                trySend(isWifiConnected())
-            }
-            override fun onLost(network: Network) {
-                trySend(isWifiConnected())
-            }
+            override fun onAvailable(network: Network) { trySend(isWifiConnected()) }
+            override fun onLost(network: Network) { trySend(isWifiConnected()) }
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 trySend(isWifiConnected())
             }
@@ -53,4 +48,11 @@ class NetworkMonitor(context: Context) {
         trySend(isWifiConnected())
         awaitClose { runCatching { cm.unregisterNetworkCallback(callback) } }
     }.distinctUntilChanged()
+
+    companion object {
+        fun mayDownload(context: Context, allowMobileData: Boolean): Boolean {
+            val monitor = NetworkMonitor(context)
+            return monitor.downloadsAllowed(wifiOnly = !allowMobileData, allowMobileData = allowMobileData)
+        }
+    }
 }

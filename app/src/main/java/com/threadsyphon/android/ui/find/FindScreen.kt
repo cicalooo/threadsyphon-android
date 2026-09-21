@@ -11,7 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Rule
+import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +53,7 @@ fun FindScreen(repository: WatchRepository) {
     val context = LocalContext.current
 
     Scaffold(topBar = { TopAppBar(title = { Text("Find") }) }) { padding ->
-        Column(Modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(board, { board = it.filter { c -> c.isLetterOrDigit() }.take(10) }, label = { Text("Board") }, singleLine = true, modifier = Modifier.weight(0.35f))
                 OutlinedTextField(query, { query = it }, label = { Text("Query") }, singleLine = true, modifier = Modifier.weight(0.65f))
@@ -74,7 +74,7 @@ fun FindScreen(repository: WatchRepository) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
                 items(results, key = { "${it.board}/${it.no}" }) { hit ->
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text(hit.displayTitle, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${hit.shortId} · R${hit.replies} · I${hit.images}", style = MaterialTheme.typography.bodySmall)
                             Row {
@@ -87,7 +87,7 @@ fun FindScreen(repository: WatchRepository) {
                                         repository.upsertRule(WatchRuleEntity(id = newId(), name = "Find · /${hit.board}/", board = hit.board, query = q))
                                         info = "Rule added"
                                     }
-                                }) { Icon(Icons.Default.Rule, "Watchdog") }
+                                }) { Icon(Icons.AutoMirrored.Filled.Rule, "Watchdog") }
                             }
                         }
                     }
