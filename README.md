@@ -161,3 +161,8 @@ Desktop cousins: [threadsyphon (Windows)](https://github.com/cicalooo/threadsyph
 Release APKs are signed for sideload only (not Play Store). Create a local
 `keystore.properties` (gitignored) pointing at your release `.jks` — see
 `app/build.gradle.kts`. Never commit the keystore or passwords.
+
+
+## Foreground service
+
+WatchService uses `specialUse` (not `dataSync`) so Android 15+ does not apply the 6-hour/24h dataSync timeout to always-on watching. `onTimeout` still stops cleanly if the OS ever times the service out.

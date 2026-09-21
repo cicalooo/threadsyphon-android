@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.threadsyphon.android.MainActivity
@@ -24,11 +25,16 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/**
+ * Long-running watcher. Uses [ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE]
+ * because always-on thread watching does not fit the Android 15 dataSync 6h/24h budget.
+ */
 class WatchService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var repo: WatchRepository
     private var loopJob: Job? = null
     private var scoutJob: Job? = null
+    private var activeObserverJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -44,16 +50,27 @@ class WatchService : Service() {
         startAsForeground(0)
         if (loopJob?.isActive != true) loopJob = scope.launch { watchLoop() }
         if (scoutJob?.isActive != true) scoutJob = scope.launch { scoutLoop() }
-        scope.launch {
-            repo.observeActiveCount().collectLatest { count ->
-                updateNotification(count)
-                if (count <= 0) {
-                    delay(3_000)
-                    stopSelfSafely()
+        if (activeObserverJob?.isActive != true) {
+            activeObserverJob = scope.launch {
+                repo.observeActiveCount().collectLatest { count ->
+                    updateNotification(count)
+                    if (count <= 0) {
+                        delay(3_000)
+                        stopSelfSafely()
+                    }
                 }
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * Android 15+ safety net. specialUse is not under the dataSync 6h limit, but if the
+     * system still times us out we must stop promptly to avoid RemoteServiceException.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "onTimeout startId=$startId fgsType=$fgsType — stopping cleanly")
+        stopSelfSafely()
     }
 
     private suspend fun watchLoop() {
@@ -77,8 +94,21 @@ class WatchService : Service() {
 
     private fun startAsForeground(activeCount: Int) {
         val notification = buildNotification(activeCount)
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // API 34+: specialUse; fall back to dataSync only on older if constant missing — prefer specialUse from 34
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else {
+            0
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(this, NotificationHelper.WATCH_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            ServiceCompat.startForeground(
+                this,
+                NotificationHelper.WATCH_NOTIFICATION_ID,
+                notification,
+                type,
+            )
         } else {
             startForeground(NotificationHelper.WATCH_NOTIFICATION_ID, notification)
         }
@@ -116,7 +146,11 @@ class WatchService : Service() {
     private fun stopSelfSafely() {
         loopJob?.cancel()
         scoutJob?.cancel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        activeObserverJob?.cancel()
+        loopJob = null
+        scoutJob = null
+        activeObserverJob = null
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
 
@@ -128,6 +162,7 @@ class WatchService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val TAG = "WatchService"
         const val ACTION_STOP = "com.threadsyphon.android.action.STOP_SERVICE"
 
         fun start(context: Context) {
