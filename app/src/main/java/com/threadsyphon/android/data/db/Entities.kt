@@ -19,12 +19,18 @@ data class WatchedThreadEntity(
     val verifyMd5: Boolean = true,
     val status: String = WatchStatus.Ready.name,
     val savedCount: Int = 0,
+    /** Matching media files known from last successful JSON parse. */
+    val totalFiles: Int = 0,
     val lastError: String = "",
     val lastCheckedAt: Long = 0L,
     val nextCheckAt: Long = 0L,
     val autoStart: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val folderRelative: String = "",
+    /** OP media tim for list thumbnail (0 = none). */
+    val thumbTim: Long = 0L,
+    /** Hidden from Active (auto-archive / manual). */
+    val hidden: Boolean = false,
 )
 
 @Entity(tableName = "watch_rules")

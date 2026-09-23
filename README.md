@@ -1,6 +1,6 @@
 # ThreadSyphon Android
 
-Native **Kotlin + Jetpack Compose (Material 3)** port of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
+Native **Kotlin + Jetpack Compose (Material 3)** port (v1.0.2) of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
 
 No accounts. No telemetry. HTTP is only used to check threads (`a.4cdn.org`), search catalogs, and download media you asked for (`i.4cdn.org`).
 
@@ -44,17 +44,17 @@ Debug builds use applicationId `com.threadsyphon.android.debug`.
 
 ## Quick start
 
-1. Launch **ThreadSyphon**.
+1. Launch **threadsyphon**.
 2. Allow **notifications** when prompted (Android 13+).
 3. Paste a URL such as `https://boards.4chan.org/g/thread/12345678` → **Add**.
 4. The foreground service starts; a persistent notification shows **Pause all** / **Open**.
 5. Open a thread for status, check-now, pause/start, open in browser.
 
-Default save root (app-scoped):
+Default save root (visible shared storage):
 
-`Android/data/com.threadsyphon.android/files/threadsyphon/<board>/<thread>/`
+`/storage/emulated/0/threadsyphon/<board>/<thread>/`
 
-Optional: Settings → download location → MediaStore public Downloads.
+(= Internal storage/threadsyphon). Requires all-files access on Android 11+ (Settings → Grant). Optional custom folder via SAF picker. App-private storage is available but not the default.
 
 ---
 
@@ -69,7 +69,9 @@ Optional: Settings → download location → MediaStore public Downloads.
 | **Share To** | `SEND` `text/plain` + `VIEW` `https` 4chan thread URLs → add & watch |
 | **Wi‑Fi** | **Wi‑Fi only by default**; Settings toggle **Allow mobile data** |
 | **Battery** | Settings explains + deep-links / requests ignore battery optimizations |
-| **Extras** | Open in browser, low-storage stop, notification channels (`watch` / `events`), light/dark (+ optional dynamic color flag) |
+| **Progress** | Active list shows progress bar + `downloaded/total` while downloading |
+| **Storage** | Shared `Internal storage/threadsyphon`, custom folder, Open folder in file manager |
+| **Extras** | Per-thread pause/resume, complete/404 notifications, auto-hide finished, thumbnails, watch-list JSON export/import, media filter ALL/images/video |
 
 ---
 

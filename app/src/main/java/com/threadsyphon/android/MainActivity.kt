@@ -21,6 +21,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { }
 
+    private val requestLegacyStorage = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -31,6 +35,21 @@ class MainActivity : ComponentActivity() {
                 requestNotif.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            val needed = mutableListOf<String>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                needed += Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                needed += Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+            if (needed.isNotEmpty()) requestLegacyStorage.launch(needed.toTypedArray())
+        }
+        // All-files access for Internal storage/threadsyphon is requested from Settings.
         val app = application as ThreadSyphonApp
         setContent {
             val settings by app.repository.settings().collectAsState(initial = AppSettings())

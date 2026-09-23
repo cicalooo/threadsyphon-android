@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <external-files-path name="threadsyphon" path="threadsyphon/" />
+    <external-files-path name="threadsyphon_app" path="threadsyphon/" />
+    <external-path name="threadsyphon_shared" path="threadsyphon/" />
     <external-path name="downloads" path="Download/threadsyphon/" />
+    <external-path name="external_root" path="." />
     <cache-path name="cache" path="." />
 </paths>

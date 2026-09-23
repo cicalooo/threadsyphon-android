@@ -12,6 +12,12 @@ interface ThreadDao {
     @Query("SELECT * FROM watched_threads ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<WatchedThreadEntity>>
 
+    @Query("SELECT * FROM watched_threads WHERE hidden = 0 ORDER BY createdAt DESC")
+    fun observeActive(): Flow<List<WatchedThreadEntity>>
+
+    @Query("SELECT * FROM watched_threads WHERE hidden = 1 ORDER BY createdAt DESC")
+    fun observeHidden(): Flow<List<WatchedThreadEntity>>
+
     @Query("SELECT * FROM watched_threads ORDER BY createdAt DESC")
     suspend fun getAll(): List<WatchedThreadEntity>
 
@@ -27,6 +33,9 @@ interface ThreadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: WatchedThreadEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<WatchedThreadEntity>)
+
     @Update
     suspend fun update(entity: WatchedThreadEntity)
 
@@ -36,7 +45,10 @@ interface ThreadDao {
     @Query("UPDATE watched_threads SET status = :status WHERE id IN (:ids)")
     suspend fun setStatus(ids: List<String>, status: String)
 
-    @Query("SELECT COUNT(*) FROM watched_threads WHERE status IN ('Watching','Downloading')")
+    @Query("UPDATE watched_threads SET hidden = :hidden WHERE id IN (:ids)")
+    suspend fun setHidden(ids: List<String>, hidden: Boolean)
+
+    @Query("SELECT COUNT(*) FROM watched_threads WHERE status IN ('Watching','Downloading') AND hidden = 0")
     fun observeActiveCount(): Flow<Int>
 }
 
@@ -53,6 +65,9 @@ interface RuleDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: WatchRuleEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<WatchRuleEntity>)
 
     @Query("DELETE FROM watch_rules WHERE id = :id")
     suspend fun delete(id: String)
@@ -71,6 +86,9 @@ interface DownloadDao {
 
     @Query("SELECT key FROM downloaded_files WHERE threadId = :threadId")
     suspend fun keysForThread(threadId: String): List<String>
+
+    @Query("SELECT COUNT(*) FROM downloaded_files WHERE threadId = :threadId")
+    suspend fun countForThread(threadId: String): Int
 
     @Query("DELETE FROM downloaded_files WHERE threadId IN (:threadIds)")
     suspend fun deleteForThreads(threadIds: List<String>)

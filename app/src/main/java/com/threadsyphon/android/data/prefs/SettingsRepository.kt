@@ -29,6 +29,9 @@ class SettingsRepository(private val context: Context) {
         val ALLOW_MOBILE = booleanPreferencesKey("allow_mobile_data")
         val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         val DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
+        val CUSTOM_ROOT_PATH = stringPreferencesKey("custom_root_path")
+        val CUSTOM_ROOT_URI = stringPreferencesKey("custom_root_uri")
+        val AUTO_HIDE_FINISHED = booleanPreferencesKey("auto_hide_finished")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val DARK_THEME = booleanPreferencesKey("dark_theme")
         val FOLLOW_SYSTEM = booleanPreferencesKey("follow_system_theme")
@@ -48,8 +51,15 @@ class SettingsRepository(private val context: Context) {
         wifiOnly = this[Keys.WIFI_ONLY] ?: true,
         downloadLocation = when (this[Keys.DOWNLOAD_LOCATION]) {
             DownloadLocation.MediaStoreDownloads.name -> DownloadLocation.MediaStoreDownloads
-            else -> DownloadLocation.AppExternal
+            DownloadLocation.AppExternal.name -> DownloadLocation.AppExternal
+            DownloadLocation.CustomPath.name -> DownloadLocation.CustomPath
+            DownloadLocation.SharedRoot.name -> DownloadLocation.SharedRoot
+            // Migrate legacy / missing → shared root (visible)
+            else -> DownloadLocation.SharedRoot
         },
+        customRootPath = this[Keys.CUSTOM_ROOT_PATH] ?: "",
+        customRootUri = this[Keys.CUSTOM_ROOT_URI] ?: "",
+        autoHideFinished = this[Keys.AUTO_HIDE_FINISHED] ?: true,
         dynamicColor = this[Keys.DYNAMIC_COLOR] ?: true,
         darkTheme = this[Keys.DARK_THEME] ?: false,
         followSystemTheme = this[Keys.FOLLOW_SYSTEM] ?: true,
@@ -72,6 +82,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.ALLOW_MOBILE] = next.allowMobileData
             prefs[Keys.WIFI_ONLY] = next.wifiOnly
             prefs[Keys.DOWNLOAD_LOCATION] = next.downloadLocation.name
+            prefs[Keys.CUSTOM_ROOT_PATH] = next.customRootPath
+            prefs[Keys.CUSTOM_ROOT_URI] = next.customRootUri
+            prefs[Keys.AUTO_HIDE_FINISHED] = next.autoHideFinished
             prefs[Keys.DYNAMIC_COLOR] = next.dynamicColor
             prefs[Keys.DARK_THEME] = next.darkTheme
             prefs[Keys.FOLLOW_SYSTEM] = next.followSystemTheme

@@ -23,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.threadsyphon.android.data.engine.WatchRepository
+import com.threadsyphon.android.data.model.WatchStatus
 import com.threadsyphon.android.service.WatchService
 import com.threadsyphon.android.util.StorageHelper
 import kotlinx.coroutines.launch
@@ -52,24 +54,24 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
         topBar = {
             TopAppBar(
                 title = {
-                    Text(t?.let { it.label.ifBlank { it.subject }.ifBlank { "/${it.board}/${it.threadNo}" } } ?: "Thread", maxLines = 1)
+                    Text(
+                        t?.let { it.label.ifBlank { it.subject }.ifBlank { "/${it.board}/${it.threadNo}" } }
+                            ?: "Thread",
+                        maxLines = 1,
+                    )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
                 },
                 actions = {
                     if (t != null) {
-                        IconButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(t.url))) }) {
+                        IconButton(onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(t.url)))
+                        }) {
                             Icon(Icons.Default.OpenInBrowser, "Browser")
                         }
-                        IconButton(onClick = {
-                            scope.launch {
-                                val settings = repository.currentSettings()
-                                val folder = StorageHelper.threadFolder(context, t.board, t.threadNo, settings.downloadLocation)
-                                folder.mkdirs()
-                                Toast.makeText(context, "Folder: ${folder.absolutePath}", Toast.LENGTH_LONG).show()
-                            }
-                        }) { Icon(Icons.Default.FolderOpen, "Folder") }
                     }
                 },
             )
@@ -79,19 +81,61 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             Text("Thread not found", Modifier.padding(padding).padding(16.dp))
             return@Scaffold
         }
+        val total = t.totalFiles
+        val saved = t.savedCount
+        val downloading = t.status == WatchStatus.Downloading.name
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("/${t.board}/${t.threadNo}", style = MaterialTheme.typography.titleMedium)
             Text(t.url, style = MaterialTheme.typography.bodySmall)
             Text("Status: ${statusLabel(t.status)}")
-            Text("Saved: ${t.savedCount}")
+            if (total > 0) {
+                Text("Progress: $saved / $total files")
+                LinearProgressIndicator(
+                    progress = { (saved.toFloat() / total.toFloat()).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text("Saved: $saved")
+                if (downloading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
             Text("Interval: ${t.intervalSec}s · Filter: ${t.mediaFilter} · Names: ${t.filenameMode}")
             if (t.lastCheckedAt > 0) Text("Last check: ${formatTime(t.lastCheckedAt)}")
             if (t.nextCheckAt > 0) Text("Next check: ${formatTime(t.nextCheckAt)}")
             if (t.lastError.isNotBlank()) Text(t.lastError, color = MaterialTheme.colorScheme.error)
-            Text("Folder: ${t.folderRelative.ifBlank { "${t.board}/${t.threadNo}" }}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Folder: ${t.folderRelative.ifBlank { "${t.board}/${t.threadNo}" }}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(
+                onClick = {
+                    scope.launch {
+                        val settings = repository.currentSettings()
+                        val folder = StorageHelper.threadFolder(context, t.board, t.threadNo, settings)
+                        folder.mkdirs()
+                        val ok = StorageHelper.openFolderInFileManager(context, folder)
+                        if (!ok) {
+                            Toast.makeText(
+                                context,
+                                "Folder: ${folder.absolutePath}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.FolderOpen, null)
+                Text(" Open folder")
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     scope.launch {
@@ -99,17 +143,32 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
                         WatchService.start(context)
                         repository.checkNow(listOf(t.id))
                     }
-                }) { Icon(Icons.Default.PlayArrow, null); Text(" Start") }
-                OutlinedButton(onClick = { scope.launch { repository.setPaused(listOf(t.id), true) } }) {
-                    Icon(Icons.Default.Pause, null); Text(" Pause")
+                }) {
+                    Icon(Icons.Default.PlayArrow, null)
+                    Text(" Resume")
+                }
+                OutlinedButton(onClick = {
+                    scope.launch { repository.setPaused(listOf(t.id), true) }
+                }) {
+                    Icon(Icons.Default.Pause, null)
+                    Text(" Pause")
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { scope.launch { repository.checkNow(listOf(t.id)) } }) {
-                    Icon(Icons.Default.Refresh, null); Text(" Check")
+                OutlinedButton(onClick = {
+                    scope.launch { repository.checkNow(listOf(t.id)) }
+                }) {
+                    Icon(Icons.Default.Refresh, null)
+                    Text(" Check")
                 }
-                OutlinedButton(onClick = { scope.launch { repository.remove(listOf(t.id)); onBack() } }) {
-                    Icon(Icons.Default.Delete, null); Text(" Remove")
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        repository.remove(listOf(t.id))
+                        onBack()
+                    }
+                }) {
+                    Icon(Icons.Default.Delete, null)
+                    Text(" Remove")
                 }
             }
         }

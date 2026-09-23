@@ -11,19 +11,34 @@ object Constants {
     )
     val FILENAME_MODES = listOf("original", "server", "numbered")
     val MEDIA_FILTERS = listOf("all", "images", "video")
+    val MEDIA_FILTER_LABELS = mapOf(
+        "all" to "ALL",
+        "images" to "images only",
+        "video" to "video only",
+    )
     val IMAGE_EXTS = setOf(".jpg", ".jpeg", ".png", ".gif", ".webp")
     val VIDEO_EXTS = setOf(".webm", ".mp4")
-    const val USER_AGENT = "threadsyphon-android/1.0 (+mobile thread archiver; respectful polling)"
+    const val USER_AGENT = "threadsyphon-android/1.0.2 (+mobile thread archiver; respectful polling)"
     const val API_BASE = "https://a.4cdn.org"
     const val CDN_BASE = "https://i.4cdn.org"
     const val FREE_SPACE_RESERVE_BYTES = 8L * 1024 * 1024
     const val MAX_DOWNLOAD_BYTES = 512L * 1024 * 1024
     const val MAX_JSON_BYTES = 16 * 1024 * 1024
+    const val SHARED_ROOT_FOLDER = "threadsyphon"
 }
 
 enum class WatchStatus { Ready, Watching, Downloading, Paused, Complete, Error, StoppedLowStorage }
 
-enum class DownloadLocation { AppExternal, MediaStoreDownloads }
+/**
+ * Where media lands on disk.
+ * Default is [SharedRoot] — visible `Internal storage/threadsyphon`.
+ */
+enum class DownloadLocation {
+    SharedRoot,
+    CustomPath,
+    AppExternal,
+    MediaStoreDownloads,
+}
 
 data class AppSettings(
     val defaultInterval: Int = 30,
@@ -36,7 +51,12 @@ data class AppSettings(
     val cdnGap: Float = 0.25f,
     val wifiOnly: Boolean = true,
     val allowMobileData: Boolean = false,
-    val downloadLocation: DownloadLocation = DownloadLocation.AppExternal,
+    val downloadLocation: DownloadLocation = DownloadLocation.SharedRoot,
+    /** Absolute filesystem path when [downloadLocation] is [DownloadLocation.CustomPath]. */
+    val customRootPath: String = "",
+    /** Persistable SAF tree URI (optional companion to [customRootPath]). */
+    val customRootUri: String = "",
+    val autoHideFinished: Boolean = true,
     val dynamicColor: Boolean = true,
     val darkTheme: Boolean = false,
     val followSystemTheme: Boolean = true,
@@ -96,6 +116,9 @@ fun wantMedia(extension: String, mediaFilter: String): Boolean {
 
 fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 
+fun thumbUrl(board: String, tim: Long): String? =
+    if (tim > 0) "${Constants.CDN_BASE}/$board/${tim}s.jpg" else null
+
 data class CatalogThread(
     val board: String,
     val no: Long,
@@ -107,6 +130,7 @@ data class CatalogThread(
     val closed: Boolean,
     val time: Long,
     val semanticUrl: String = "",
+    val tim: Long = 0L,
 ) {
     val url: String get() = "https://boards.4chan.org/$board/thread/$no"
     val shortId: String get() = "/$board/$no"
@@ -114,4 +138,5 @@ data class CatalogThread(
         get() = title.ifBlank {
             body.take(80).let { if (body.length > 80) "$it…" else it }
         }.ifBlank { shortId }
+    val thumbnailUrl: String? get() = thumbUrl(board, tim)
 }

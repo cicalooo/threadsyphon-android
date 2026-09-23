@@ -3,6 +3,8 @@ package com.threadsyphon.android.data.network
 import com.threadsyphon.android.data.model.CatalogThread
 import com.threadsyphon.android.data.model.Constants
 import com.threadsyphon.android.data.engine.stripHtml
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -49,7 +51,7 @@ class FourChanClient(
         ext: String,
         destFile: java.io.File,
         onProgress: ((Long) -> Unit)? = null,
-    ): Long {
+    ): Long = withContext(Dispatchers.IO) {
         SharedLimiters.cdn.waitTurn()
         val url = "${Constants.CDN_BASE}/$board/$tim$ext"
         val existing = if (destFile.exists()) destFile.length() else 0L
@@ -63,7 +65,6 @@ class FourChanClient(
         client.newCall(requestBuilder.build()).execute().use { response ->
             when (response.code) {
                 200 -> {
-                    // Full body (server ignored Range or fresh)
                     destFile.outputStream().use { out ->
                         response.body?.byteStream()?.copyToWithProgress(out, onProgress)
                     }
@@ -90,10 +91,10 @@ class FourChanClient(
                 else -> throw IllegalStateException("CDN HTTP ${response.code} for $url")
             }
         }
-        return destFile.length()
+        destFile.length()
     }
 
-    private fun getBytes(url: String, accept: String): ByteArray {
+    private suspend fun getBytes(url: String, accept: String): ByteArray = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", Constants.USER_AGENT)
@@ -107,7 +108,7 @@ class FourChanClient(
             if (bytes.size > Constants.MAX_JSON_BYTES) {
                 throw IllegalStateException("Response too large")
             }
-            return bytes
+            bytes
         }
     }
 
@@ -141,6 +142,7 @@ class FourChanClient(
                             closed = row.optInt("closed", 0) != 0,
                             time = row.optLong("time", 0).coerceAtLeast(0),
                             semanticUrl = row.optString("semantic_url", ""),
+                            tim = row.optLong("tim", 0).coerceAtLeast(0),
                         ),
                     )
                 }
