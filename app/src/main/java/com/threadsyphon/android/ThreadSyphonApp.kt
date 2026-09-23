@@ -25,6 +25,9 @@ class ThreadSyphonApp : Application() {
         NotificationHelper.ensureChannels(this)
         repository = WatchRepository(this)
         applicationScope.launch(Dispatchers.IO) {
+            repository.migrateLegacyAppExternalToSharedRootOnce()
+        }
+        applicationScope.launch(Dispatchers.IO) {
             repository.observeThreads().collect { list ->
                 val needs = list.any {
                     it.status == "Ready" || it.status == "Watching" || it.status == "Downloading"

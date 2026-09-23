@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.threadsyphon.android.data.engine.WatchRepository
+import com.threadsyphon.android.data.model.DownloadLocation
 import com.threadsyphon.android.data.model.WatchStatus
 import com.threadsyphon.android.service.WatchService
 import com.threadsyphon.android.util.StorageHelper
@@ -118,16 +119,46 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             Button(
                 onClick = {
                     scope.launch {
-                        val settings = repository.currentSettings()
-                        val folder = StorageHelper.threadFolder(context, t.board, t.threadNo, settings)
-                        folder.mkdirs()
-                        val ok = StorageHelper.openFolderInFileManager(context, folder)
-                        if (!ok) {
-                            Toast.makeText(
-                                context,
-                                "Folder: ${folder.absolutePath}",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        var settings = repository.currentSettings()
+                        // Legacy AppExternal → prefer shared; persist migration.
+                        if (settings.downloadLocation == DownloadLocation.AppExternal) {
+                            repository.updateSettings {
+                                it.copy(downloadLocation = DownloadLocation.SharedRoot)
+                            }
+                            settings = repository.currentSettings()
+                        }
+                        val outcome = StorageHelper.openThreadFolder(
+                            context,
+                            t.board,
+                            t.threadNo,
+                            settings,
+                        )
+                        if (outcome.opened) {
+                            if (outcome.needsAllFilesAccess) {
+                                Toast.makeText(
+                                    context,
+                                    "Opened app folder — grant All files access for Internal storage/threadsyphon",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                try {
+                                    context.startActivity(StorageHelper.allFilesAccessIntent(context))
+                                } catch (_: Exception) {
+                                }
+                            }
+                            return@launch
+                        }
+                        // Last resort: clipboard + clear toast; offer all-files grant.
+                        StorageHelper.copyPathToClipboard(context, outcome.folder.absolutePath)
+                        Toast.makeText(
+                            context,
+                            "Couldn't open Files — path copied: ${outcome.folder.absolutePath}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        if (outcome.needsAllFilesAccess) {
+                            try {
+                                context.startActivity(StorageHelper.allFilesAccessIntent(context))
+                            } catch (_: Exception) {
+                            }
                         }
                     }
                 },
@@ -135,6 +166,20 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             ) {
                 Icon(Icons.Default.FolderOpen, null)
                 Text(" Open folder")
+            }
+            if (!StorageHelper.hasAllFilesAccess()) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            context.startActivity(StorageHelper.allFilesAccessIntent(context))
+                        } catch (e: Exception) {
+                            Toast.makeText(context, e.message ?: "Open settings failed", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Grant All files access (shared folder)")
+                }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {

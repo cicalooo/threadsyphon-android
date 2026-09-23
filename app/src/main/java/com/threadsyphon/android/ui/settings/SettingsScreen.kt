@@ -247,7 +247,21 @@ fun SettingsScreen(repository: WatchRepository) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(
                     selected = settings.downloadLocation == DownloadLocation.SharedRoot,
-                    onClick = { update { it.copy(downloadLocation = DownloadLocation.SharedRoot) } },
+                    onClick = {
+                        update { it.copy(downloadLocation = DownloadLocation.SharedRoot) }
+                        allFiles = StorageHelper.hasAllFilesAccess()
+                        if (!allFiles) {
+                            try {
+                                context.startActivity(StorageHelper.allFilesAccessIntent(context))
+                            } catch (_: Exception) {
+                            }
+                            Toast.makeText(
+                                context,
+                                "Grant All files access so Internal storage/threadsyphon works",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
                     label = { Text("Internal storage/threadsyphon") },
                 )
                 FilterChip(
@@ -343,7 +357,7 @@ fun SettingsScreen(repository: WatchRepository) {
 
             HorizontalDivider()
             Text(
-                "threadsyphon Android 1.0.2 · No account · Respectful polling",
+                "threadsyphon Android 1.0.4 · No account · Respectful polling",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -217,6 +217,10 @@ class WatchRepository(
         return added
     }
 
+    suspend fun migrateLegacyAppExternalToSharedRootOnce() {
+        settingsRepo.migrateLegacyAppExternalToSharedRootOnce()
+    }
+
     suspend fun updateSettings(transform: (AppSettings) -> AppSettings) {
         settingsRepo.update(transform)
     }

@@ -38,6 +38,7 @@ class SettingsRepository(private val context: Context) {
         val SCOUT_INTERVAL = intPreferencesKey("scout_interval")
         val FIND_BOARD = stringPreferencesKey("find_board")
         val FIND_QUERY = stringPreferencesKey("find_query")
+        val MIGRATED_SHARED_ROOT_V104 = booleanPreferencesKey("migrated_shared_root_v104")
     }
 
     private fun Preferences.toSettings(): AppSettings = AppSettings(
@@ -56,7 +57,7 @@ class SettingsRepository(private val context: Context) {
             DownloadLocation.AppExternal.name -> DownloadLocation.AppExternal
             DownloadLocation.CustomPath.name -> DownloadLocation.CustomPath
             DownloadLocation.SharedRoot.name -> DownloadLocation.SharedRoot
-            // Migrate legacy / missing → shared root (visible)
+            // Migrate missing → shared root (visible)
             else -> DownloadLocation.SharedRoot
         },
         customRootPath = this[Keys.CUSTOM_ROOT_PATH] ?: "",
@@ -115,4 +116,21 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    /**
+     * One-time: MVP defaulted to AppExternal (Android/data/…). Move those installs
+     * to SharedRoot so downloads + Open folder use Internal storage/threadsyphon.
+     * Users who later pick AppExternal again are left alone (flag already set).
+     */
+    suspend fun migrateLegacyAppExternalToSharedRootOnce() {
+        context.dataStore.edit { prefs ->
+            if (prefs[Keys.MIGRATED_SHARED_ROOT_V104] == true) return@edit
+            val loc = prefs[Keys.DOWNLOAD_LOCATION]
+            if (loc == null || loc == DownloadLocation.AppExternal.name) {
+                prefs[Keys.DOWNLOAD_LOCATION] = DownloadLocation.SharedRoot.name
+            }
+            prefs[Keys.MIGRATED_SHARED_ROOT_V104] = true
+        }
+    }
+
 }
+
