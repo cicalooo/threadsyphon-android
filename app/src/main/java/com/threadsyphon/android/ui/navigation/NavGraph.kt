@@ -26,6 +26,7 @@ import com.threadsyphon.android.data.engine.WatchRepository
 import com.threadsyphon.android.ui.find.FindScreen
 import com.threadsyphon.android.ui.rules.RulesScreen
 import com.threadsyphon.android.ui.settings.SettingsScreen
+import com.threadsyphon.android.ui.folder.ThreadFolderScreen
 import com.threadsyphon.android.ui.threads.ThreadDetailScreen
 import com.threadsyphon.android.ui.threads.ThreadListScreen
 
@@ -80,7 +81,23 @@ fun ThreadSyphonNavHost(repository: WatchRepository) {
                 arguments = listOf(navArgument("id") { type = NavType.StringType }),
             ) { entry ->
                 val id = entry.arguments?.getString("id") ?: return@composable
-                ThreadDetailScreen(threadId = id, repository = repository, onBack = { nav.popBackStack() })
+                ThreadDetailScreen(
+                    threadId = id,
+                    repository = repository,
+                    onBack = { nav.popBackStack() },
+                    onOpenFolder = { nav.navigate("thread/$id/folder") },
+                )
+            }
+            composable(
+                route = "thread/{id}/folder",
+                arguments = listOf(navArgument("id") { type = NavType.StringType }),
+            ) { entry ->
+                val id = entry.arguments?.getString("id") ?: return@composable
+                ThreadFolderScreen(
+                    threadId = id,
+                    repository = repository,
+                    onBack = { nav.popBackStack() },
+                )
             }
             composable(Dest.Find.route) { FindScreen(repository = repository) }
             composable(Dest.Rules.route) { RulesScreen(repository = repository) }

@@ -45,7 +45,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: () -> Unit) {
+fun ThreadDetailScreen(
+    threadId: String,
+    repository: WatchRepository,
+    onBack: () -> Unit,
+    onOpenFolder: () -> Unit,
+) {
     val thread by repository.observeThread(threadId).collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -118,9 +123,9 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             )
             Button(
                 onClick = {
+                    // Always navigate to in-app folder browser (OEM file managers are unreliable).
                     scope.launch {
                         var settings = repository.currentSettings()
-                        // Legacy AppExternal / MediaStoreDownloads → shared root.
                         if (
                             settings.downloadLocation == DownloadLocation.AppExternal ||
                             settings.downloadLocation == DownloadLocation.MediaStoreDownloads
@@ -128,57 +133,9 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
                             repository.updateSettings {
                                 it.copy(downloadLocation = DownloadLocation.SharedRoot)
                             }
-                            settings = repository.currentSettings()
                         }
-                        val outcome = StorageHelper.openThreadFolder(
-                            context,
-                            t.board,
-                            t.threadNo,
-                            settings,
-                        )
-                        val path = outcome.folder.absolutePath
-                        if (outcome.needsAllFilesAccess) {
-                            // Do not pretend open worked; copy filesystem path (never FileProvider URI).
-                            StorageHelper.copyPathToClipboard(context, path)
-                            val stagingNote = if (outcome.hadPrivateStagingOnly) {
-                                " Older files may still be under app-private staging until you grant access."
-                            } else {
-                                ""
-                            }
-                            Toast.makeText(
-                                context,
-                                "Grant All files access to open Internal storage/threadsyphon — path copied: $path.$stagingNote",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                            try {
-                                context.startActivity(StorageHelper.allFilesAccessIntent(context))
-                            } catch (_: Exception) {
-                            }
-                            return@launch
-                        }
-                        if (outcome.opened) {
-                            if (outcome.migratedPrivateFiles > 0) {
-                                Toast.makeText(
-                                    context,
-                                    "Moved ${outcome.migratedPrivateFiles} file(s) from private staging into $path",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            } else if (outcome.hadPrivateStagingOnly) {
-                                Toast.makeText(
-                                    context,
-                                    "Opened shared folder. Some older files remain under app-private staging.",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                            return@launch
-                        }
-                        StorageHelper.copyPathToClipboard(context, path)
-                        Toast.makeText(
-                            context,
-                            "Couldn't open Files — path copied: $path",
-                            Toast.LENGTH_LONG,
-                        ).show()
                     }
+                    onOpenFolder()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -188,10 +145,8 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
             if (!StorageHelper.hasAllFilesAccess()) {
                 OutlinedButton(
                     onClick = {
-                        try {
-                            context.startActivity(StorageHelper.allFilesAccessIntent(context))
-                        } catch (e: Exception) {
-                            Toast.makeText(context, e.message ?: "Open settings failed", Toast.LENGTH_SHORT).show()
+                        if (!StorageHelper.launchAllFilesAccess(context)) {
+                            Toast.makeText(context, "Open settings failed", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),

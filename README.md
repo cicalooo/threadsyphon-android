@@ -1,6 +1,6 @@
 # ThreadSyphon Android
 
-Native **Kotlin + Jetpack Compose (Material 3)** port (v1.0.5) of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
+Native **Kotlin + Jetpack Compose (Material 3)** port (v1.0.6) of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
 
 No accounts. No telemetry. HTTP is only used to check threads (`a.4cdn.org`), search catalogs, and download media you asked for (`i.4cdn.org`).
 
@@ -70,7 +70,7 @@ Default save root (visible shared storage):
 | **Wi‑Fi** | **Wi‑Fi only by default**; Settings toggle **Allow mobile data** |
 | **Battery** | Settings explains + deep-links / requests ignore battery optimizations |
 | **Progress** | Active list shows progress bar + `downloaded/total` while downloading |
-| **Storage** | Shared `Internal storage/threadsyphon`, custom folder, Open folder in file manager |
+| **Storage** | Shared `Internal storage/threadsyphon`, custom folder, in-app Open folder browser + Files chooser |
 | **Extras** | Per-thread pause/resume, complete/404 notifications, auto-hide finished, thumbnails, watch-list JSON export/import, media filter ALL/images/video |
 
 ---

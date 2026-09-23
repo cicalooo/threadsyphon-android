@@ -13,6 +13,7 @@ import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import com.threadsyphon.android.data.model.AppSettings
 import com.threadsyphon.android.data.model.Constants
 import com.threadsyphon.android.data.model.DownloadLocation
@@ -29,6 +30,16 @@ data class OpenFolderOutcome(
     val migratedPrivateFiles: Int = 0,
     /** Old media still only under Android/data staging (could not copy yet). */
     val hadPrivateStagingOnly: Boolean = false,
+)
+
+data class FolderBrowseInfo(
+    val folder: File,
+    val needsAllFilesAccess: Boolean,
+    val migratedPrivateFiles: Int = 0,
+    val hadPrivateStagingOnly: Boolean = false,
+    /** False when listFiles() is null (no permission / not a directory). */
+    val listReadable: Boolean,
+    val files: List<File>,
 )
 
 object StorageHelper {
@@ -211,6 +222,22 @@ object StorageHelper {
         }
     }
 
+    /** Launch all-files settings; tries package-specific then the global manager screen. */
+    fun launchAllFilesAccess(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return tryStart(context, allFilesAccessIntent(context), requireResolved = false)
+        }
+        val packageIntent = Intent(
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:${context.packageName}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (tryStart(context, packageIntent, requireResolved = false)) return true
+        val global = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (tryStart(context, global, requireResolved = false)) return true
+        return tryStart(context, allFilesAccessIntent(context), requireResolved = false)
+    }
+
     fun copyPathToClipboard(context: Context, path: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         cm.setPrimaryClip(ClipData.newPlainText("folder", path))
@@ -264,6 +291,186 @@ object StorageHelper {
             }
         }
         return moved
+    }
+
+    /**
+     * Resolve the shared (or custom) thread folder for the in-app browser.
+     * Migrates private staging when all-files access allows writing the shared tree.
+     * Does not launch external file managers — that is optional via [openInFilesChooser].
+     */
+    fun prepareThreadFolderBrowse(
+        context: Context,
+        board: String,
+        threadNo: Long,
+        settings: AppSettings,
+    ): FolderBrowseInfo {
+        val sharedFolder = sharedThreadFolder(board, threadNo)
+        val custom = if (settings.downloadLocation == DownloadLocation.CustomPath) {
+            customRoot(settings.customRootPath)?.let { File(it, "$board/$threadNo") }
+        } else {
+            null
+        }
+        val targetFolder = custom ?: sharedFolder
+        val needsAllFiles = (custom == null) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            !hasAllFilesAccess()
+
+        var migrated = 0
+        if (!needsAllFiles) {
+            targetFolder.mkdirs()
+            ensureWritableDir(targetFolder)
+            if (custom == null) {
+                migrated = migratePrivateThreadMediaToShared(context, board, threadNo, sharedFolder)
+            }
+        } else {
+            // Best-effort mkdir; may fail without all-files — UI still shows the expected path.
+            try {
+                targetFolder.mkdirs()
+            } catch (_: Exception) {
+            }
+        }
+
+        val listed = try {
+            targetFolder.listFiles()
+        } catch (_: Exception) {
+            null
+        }
+        val listReadable = listed != null && targetFolder.isDirectory
+        val files = (listed ?: emptyArray())
+            .filter { it.isFile && !it.name.endsWith(".part") }
+            .sortedBy { it.name.lowercase(java.util.Locale.US) }
+        val stillPrivateOnly = custom == null &&
+            migrated == 0 &&
+            privateThreadHasMedia(context, board, threadNo) &&
+            files.isEmpty()
+
+        return FolderBrowseInfo(
+            folder = targetFolder,
+            needsAllFilesAccess = needsAllFiles,
+            migratedPrivateFiles = migrated,
+            hadPrivateStagingOnly = stillPrivateOnly,
+            listReadable = listReadable,
+            files = files,
+        )
+    }
+
+    /**
+     * Open a single media file via FileProvider + ACTION_VIEW.
+     * Directories are refused — never hand folder URIs through FileProvider.
+     */
+    fun openFileWithProvider(context: Context, file: File): Boolean {
+        if (!file.isFile) return false
+        return try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+            val ext = file.extension.lowercase(java.util.Locale.US).let { if (it.isEmpty()) "" else ".$it" }
+            val mime = mimeForExt(ext)
+            val view = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
+            val chooser = Intent.createChooser(view, "Open ${file.name}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Ask the user to open [folder] in an external file manager via createChooser.
+     * Prefers DocumentsProvider document URIs (primary:rel). Explicitly tries Material Files.
+     * Never uses FileProvider for directories.
+     */
+    fun openInFilesChooser(context: Context, folder: File): Boolean {
+        try {
+            folder.mkdirs()
+        } catch (_: Exception) {
+        }
+        val abs = try {
+            folder.canonicalFile.absolutePath
+        } catch (_: Exception) {
+            folder.absolutePath
+        }
+        if (abs.contains("/Android/data/") || abs.contains("/Android/obb/")) {
+            return false
+        }
+
+        val primaryRoot = try {
+            Environment.getExternalStorageDirectory().canonicalFile.absolutePath
+        } catch (_: Exception) {
+            Environment.getExternalStorageDirectory().absolutePath
+        }
+        val relative = when {
+            abs == primaryRoot -> ""
+            abs.startsWith("$primaryRoot/") -> abs.removePrefix("$primaryRoot/").trim('/')
+            abs.startsWith("/sdcard/") -> abs.removePrefix("/sdcard/").trim('/')
+            abs.startsWith("/storage/emulated/0/") -> abs.removePrefix("/storage/emulated/0/").trim('/')
+            else -> null
+        } ?: return false
+
+        val authority = "com.android.externalstorage.documents"
+        val docId = if (relative.isEmpty()) "primary:" else "primary:$relative"
+        val treePrimary = DocumentsContract.buildTreeDocumentUri(authority, "primary:")
+        val treeTs = DocumentsContract.buildTreeDocumentUri(
+            authority,
+            "primary:${Constants.SHARED_ROOT_FOLDER}",
+        )
+        val folderDocUnderPrimary = DocumentsContract.buildDocumentUriUsingTree(treePrimary, docId)
+        val folderDocUnderTs = DocumentsContract.buildDocumentUriUsingTree(treeTs, docId)
+        val plainDocUri = DocumentsContract.buildDocumentUri(authority, docId)
+        val encodedDoc = Uri.parse("content://$authority/document/" + Uri.encode(docId))
+
+        fun dirView(uri: Uri): Intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+            addCategory(Intent.CATEGORY_DEFAULT)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+            )
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
+        }
+
+        // Explicit Material Files with document URI (preferred third-party).
+        val materialIntents = listOf(
+            dirView(plainDocUri).apply { setPackage("me.zhanghai.android.files") },
+            dirView(encodedDoc).apply { setPackage("me.zhanghai.android.files") },
+            dirView(folderDocUnderTs).apply { setPackage("me.zhanghai.android.files") },
+        )
+        for (intent in materialIntents) {
+            if (tryStart(context, intent, requireResolved = true)) return true
+        }
+
+        val primary = dirView(encodedDoc)
+        val alts = arrayListOf(
+            dirView(plainDocUri),
+            dirView(folderDocUnderTs),
+            dirView(folderDocUnderPrimary),
+            Intent("android.provider.action.BROWSE").apply {
+                addCategory(Intent.CATEGORY_DEFAULT)
+                setDataAndType(plainDocUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                )
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, plainDocUri)
+            },
+        )
+        val chooser = Intent.createChooser(primary, "Open folder with").apply {
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, alts.toTypedArray())
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        // Chooser is the reliable external path; do not claim folder-focus success beyond launch.
+        return tryStart(context, chooser, requireResolved = false)
     }
 
     /**
@@ -343,6 +550,8 @@ object StorageHelper {
      * **Never** hands `content://…fileprovider…` to external file managers.
      */
     fun openFolderInFileManager(context: Context, folder: File): Boolean {
+        // Prefer createChooser + document URI (OEM-safe). In-app ThreadFolderScreen is the reliable UX.
+        if (openInFilesChooser(context, folder)) return true
         folder.mkdirs()
         val abs = try {
             folder.canonicalFile.absolutePath
