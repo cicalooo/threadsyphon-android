@@ -36,6 +36,8 @@ class SettingsRepository(private val context: Context) {
         val DARK_THEME = booleanPreferencesKey("dark_theme")
         val FOLLOW_SYSTEM = booleanPreferencesKey("follow_system_theme")
         val SCOUT_INTERVAL = intPreferencesKey("scout_interval")
+        val FIND_BOARD = stringPreferencesKey("find_board")
+        val FIND_QUERY = stringPreferencesKey("find_query")
     }
 
     private fun Preferences.toSettings(): AppSettings = AppSettings(
@@ -91,4 +93,26 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SCOUT_INTERVAL] = next.scoutIntervalSec
         }
     }
+
+    fun findBoard(): Flow<String> = context.dataStore.data.map { it[Keys.FIND_BOARD] ?: "g" }
+
+    fun findQuery(): Flow<String> = context.dataStore.data.map { it[Keys.FIND_QUERY] ?: "" }
+
+    suspend fun setFindBoard(board: String) {
+        val cleaned = board.filter { it.isLetterOrDigit() }.take(10).lowercase()
+        context.dataStore.edit { it[Keys.FIND_BOARD] = cleaned.ifBlank { "g" } }
+    }
+
+    suspend fun setFindQuery(query: String) {
+        context.dataStore.edit { it[Keys.FIND_QUERY] = query.take(500) }
+    }
+
+    suspend fun setFindState(board: String, query: String) {
+        val cleaned = board.filter { it.isLetterOrDigit() }.take(10).lowercase()
+        context.dataStore.edit { prefs ->
+            prefs[Keys.FIND_BOARD] = cleaned.ifBlank { "g" }
+            prefs[Keys.FIND_QUERY] = query.take(500)
+        }
+    }
+
 }

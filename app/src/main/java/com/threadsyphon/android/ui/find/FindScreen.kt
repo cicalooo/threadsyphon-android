@@ -29,54 +29,30 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.threadsyphon.android.data.db.WatchRuleEntity
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.threadsyphon.android.ui.components.ThumbnailImage
 import com.threadsyphon.android.data.engine.WatchRepository
-import com.threadsyphon.android.data.model.CatalogThread
-import com.threadsyphon.android.data.model.newId
 import com.threadsyphon.android.service.WatchService
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FindScreen(repository: WatchRepository) {
-    var board by remember { mutableStateOf("g") }
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<CatalogThread>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var info by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+fun FindScreen(
+    repository: WatchRepository,
+    viewModel: FindViewModel = viewModel(factory = FindViewModel.factory(repository)),
+) {
+    val board = viewModel.board
+    val query = viewModel.query
+    val results = viewModel.results
+    val busy = viewModel.busy
+    val error = viewModel.error
+    val info = viewModel.info
     val context = LocalContext.current
-
-    fun runSearch() {
-        scope.launch {
-            busy = true
-            error = null
-            info = null
-            try {
-                val hits = repository.searchCatalog(board, query)
-                results = hits
-                info = "${hits.size} hit(s) on /${board.trim().lowercase().trim('/')}/"
-            } catch (e: Exception) {
-                error = e.message ?: "Search failed"
-                results = emptyList()
-            } finally {
-                busy = false
-            }
-        }
-    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Find") }) }) { padding ->
         Column(
@@ -86,7 +62,7 @@ fun FindScreen(repository: WatchRepository) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     board,
-                    { board = it.filter { c -> c.isLetterOrDigit() }.take(10) },
+                    { viewModel.onBoardChange(it) },
                     label = { Text("Board") },
                     singleLine = true,
                     modifier = Modifier.weight(0.35f),
@@ -94,7 +70,7 @@ fun FindScreen(repository: WatchRepository) {
                 )
                 OutlinedTextField(
                     query,
-                    { query = it },
+                    { viewModel.onQueryChange(it) },
                     label = { Text("Keywords / query") },
                     singleLine = true,
                     modifier = Modifier.weight(0.65f),
@@ -107,7 +83,7 @@ fun FindScreen(repository: WatchRepository) {
             )
             Button(
                 enabled = !busy && board.isNotBlank(),
-                onClick = { runSearch() },
+                onClick = { viewModel.search() },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (busy) {
@@ -156,28 +132,10 @@ fun FindScreen(repository: WatchRepository) {
                                 )
                             }
                             IconButton(onClick = {
-                                scope.launch {
-                                    repository.addFromCatalog(hit)
-                                    WatchService.start(context)
-                                    info = "Added ${hit.shortId}"
-                                }
+                                viewModel.addWatch(hit) { WatchService.start(context) }
                             }) { Icon(Icons.Default.Add, "Watch") }
                             IconButton(onClick = {
-                                scope.launch {
-                                    val q = query.ifBlank {
-                                        hit.title.takeIf { it.isNotBlank() }?.let { "title:\"$it\"" }
-                                            ?: hit.shortId
-                                    }
-                                    repository.upsertRule(
-                                        WatchRuleEntity(
-                                            id = newId(),
-                                            name = "Find · /${hit.board}/",
-                                            board = hit.board,
-                                            query = q,
-                                        ),
-                                    )
-                                    info = "Rule added"
-                                }
+                                viewModel.addRule(hit)
                             }) { Icon(Icons.AutoMirrored.Filled.Rule, "Watchdog") }
                         }
                     }

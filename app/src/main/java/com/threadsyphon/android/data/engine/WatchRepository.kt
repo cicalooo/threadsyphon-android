@@ -221,6 +221,14 @@ class WatchRepository(
         settingsRepo.update(transform)
     }
 
+    fun findBoard(): Flow<String> = settingsRepo.findBoard()
+    fun findQuery(): Flow<String> = settingsRepo.findQuery()
+
+    suspend fun setFindBoard(board: String) = settingsRepo.setFindBoard(board)
+    suspend fun setFindQuery(query: String) = settingsRepo.setFindQuery(query)
+    suspend fun setFindState(board: String, query: String) = settingsRepo.setFindState(board, query)
+
+
     suspend fun exportWatchListJson(): String {
         return WatchListIo.exportJson(db.threads().getAll(), db.rules().getAll())
     }
