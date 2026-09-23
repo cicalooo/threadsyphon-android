@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -49,6 +51,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.threadsyphon.android.data.engine.WatchRepository
 import com.threadsyphon.android.data.model.DownloadLocation
 import com.threadsyphon.android.util.FolderBrowseInfo
+import com.threadsyphon.android.util.OpenInFilesResult
 import com.threadsyphon.android.util.StorageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,6 +73,9 @@ fun ThreadFolderScreen(
 
     var browse by remember { mutableStateOf<FolderBrowseInfo?>(null) }
     var hasAllFiles by remember { mutableStateOf(StorageHelper.hasAllFilesAccess()) }
+    var openInFilesFail by remember {
+        mutableStateOf<OpenInFilesResult?>(null)
+    }
 
     fun refresh() {
         val current = t ?: return
@@ -199,14 +205,9 @@ fun ThreadFolderScreen(
                 OutlinedButton(
                     onClick = {
                         val folder = browse?.folder ?: StorageHelper.sharedThreadFolder(t.board, t.threadNo)
-                        val opened = StorageHelper.openInFilesChooser(context, folder)
-                        if (!opened) {
-                            StorageHelper.copyPathToClipboard(context, folder.absolutePath)
-                            Toast.makeText(
-                                context,
-                                "No file manager handled the folder — path copied",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        val result = StorageHelper.openInFilesChooser(context, folder)
+                        if (!result.opened) {
+                            openInFilesFail = result
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -279,6 +280,50 @@ fun ThreadFolderScreen(
             }
         }
     }
+
+
+    openInFilesFail?.let { fail ->
+        AlertDialog(
+            onDismissRequest = { openInFilesFail = null },
+            title = { Text("No file manager for folders") },
+            text = {
+                Text(
+                    (fail.message.ifBlank {
+                        "No file manager on this phone accepts folder opens from other apps. " +
+                            "Use the in-app list, or paste the path in Material Files."
+                    }) + if (fail.pathCopied) {
+                        "\n\nPath copied to clipboard."
+                    } else {
+                        ""
+                    },
+                )
+            },
+            confirmButton = {
+                if (fail.suggestInstallMaterialFiles) {
+                    TextButton(
+                        onClick = {
+                            StorageHelper.launchMaterialFilesStore(context)
+                            openInFilesFail = null
+                        },
+                    ) {
+                        Text("Get Material Files")
+                    }
+                } else {
+                    TextButton(onClick = { openInFilesFail = null }) {
+                        Text("OK")
+                    }
+                }
+            },
+            dismissButton = {
+                if (fail.suggestInstallMaterialFiles) {
+                    TextButton(onClick = { openInFilesFail = null }) {
+                        Text("Dismiss")
+                    }
+                }
+            },
+        )
+    }
+
 }
 
 @Composable

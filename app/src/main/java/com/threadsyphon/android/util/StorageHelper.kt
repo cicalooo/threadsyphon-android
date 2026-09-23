@@ -42,6 +42,18 @@ data class FolderBrowseInfo(
     val files: List<File>,
 )
 
+/**
+ * Result of [StorageHelper.openInFilesChooser].
+ * [opened] true when an external file manager Activity was started.
+ * On failure, [pathCopied] is set and [suggestInstallMaterialFiles] may be true.
+ */
+data class OpenInFilesResult(
+    val opened: Boolean,
+    val pathCopied: Boolean = false,
+    val suggestInstallMaterialFiles: Boolean = false,
+    val message: String = "",
+)
+
 object StorageHelper {
     fun appExternalRoot(context: Context): File {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
@@ -384,11 +396,14 @@ object StorageHelper {
     }
 
     /**
-     * Ask the user to open [folder] in an external file manager via createChooser.
-     * Prefers DocumentsProvider document URIs (primary:rel). Explicitly tries Material Files.
-     * Never uses FileProvider for directories.
+     * Open [folder] in an external file manager.
+     *
+     * Does **not** rely on createChooser alone (many OEMs resolve zero Activities for
+     * directory MIME + Documents URIs, which yields "no app" / silent failure).
+     * Prefers explicit package launches when installed, then MATCH_ALL query results,
+     * and only then a chooser built from known handlers. Never uses FileProvider for dirs.
      */
-    fun openInFilesChooser(context: Context, folder: File): Boolean {
+    fun openInFilesChooser(context: Context, folder: File): OpenInFilesResult {
         try {
             folder.mkdirs()
         } catch (_: Exception) {
@@ -399,21 +414,19 @@ object StorageHelper {
             folder.absolutePath
         }
         if (abs.contains("/Android/data/") || abs.contains("/Android/obb/")) {
-            return false
+            return failOpenInFiles(
+                context,
+                abs,
+                "App-private paths cannot be opened in external file managers. Use the in-app list.",
+            )
         }
 
-        val primaryRoot = try {
-            Environment.getExternalStorageDirectory().canonicalFile.absolutePath
-        } catch (_: Exception) {
-            Environment.getExternalStorageDirectory().absolutePath
-        }
-        val relative = when {
-            abs == primaryRoot -> ""
-            abs.startsWith("$primaryRoot/") -> abs.removePrefix("$primaryRoot/").trim('/')
-            abs.startsWith("/sdcard/") -> abs.removePrefix("/sdcard/").trim('/')
-            abs.startsWith("/storage/emulated/0/") -> abs.removePrefix("/storage/emulated/0/").trim('/')
-            else -> null
-        } ?: return false
+        val relative = primaryRelativePath(abs)
+            ?: return failOpenInFiles(
+                context,
+                abs,
+                "Folder is not under shared primary storage. Use the in-app list or paste the path.",
+            )
 
         val authority = "com.android.externalstorage.documents"
         val docId = if (relative.isEmpty()) "primary:" else "primary:$relative"
@@ -426,9 +439,293 @@ object StorageHelper {
         val folderDocUnderTs = DocumentsContract.buildDocumentUriUsingTree(treeTs, docId)
         val plainDocUri = DocumentsContract.buildDocumentUri(authority, docId)
         val encodedDoc = Uri.parse("content://$authority/document/" + Uri.encode(docId))
+        val fileUri = Uri.parse("file://$abs")
+        val dirMimes = listOf(
+            DocumentsContract.Document.MIME_TYPE_DIR,
+            "resource/folder",
+            "inode/directory",
+        )
+        val docUris = listOf(plainDocUri, encodedDoc, folderDocUnderTs, folderDocUnderPrimary)
 
-        fun dirView(uri: Uri): Intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+        // --- 1) Explicit known managers (detect package first) ---
+        if (isPackageInstalled(context, PKG_MATERIAL_FILES)) {
+            val materialIntents = mutableListOf<Intent>()
+            // Document URIs + directory MIMEs (FileListActivity registers these)
+            for (uri in docUris) {
+                for (mime in dirMimes) {
+                    materialIntents += dirViewIntent(uri, mime).apply {
+                        setClassName(PKG_MATERIAL_FILES, ACTIVITY_MATERIAL_FILES)
+                    }
+                    materialIntents += dirViewIntent(uri, mime).apply {
+                        setPackage(PKG_MATERIAL_FILES)
+                    }
+                }
+            }
+            // file:// absolute path with setPackage (Material Files often accepts this)
+            for (mime in dirMimes) {
+                materialIntents += Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, mime)
+                    setClassName(PKG_MATERIAL_FILES, ACTIVITY_MATERIAL_FILES)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                materialIntents += Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, mime)
+                    setPackage(PKG_MATERIAL_FILES)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            for (intent in materialIntents) {
+                if (tryStart(context, intent, requireResolved = true)) {
+                    return OpenInFilesResult(opened = true)
+                }
+            }
+            // Last resort for Material Files: setPackage VIEW without requiring resolve
+            for (mime in dirMimes) {
+                val loose = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(plainDocUri, mime)
+                    setPackage(PKG_MATERIAL_FILES)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                    )
+                }
+                if (tryStart(context, loose, requireResolved = false)) {
+                    return OpenInFilesResult(opened = true)
+                }
+            }
+        }
+
+        // AOSP / Google DocumentsUI FilesActivity
+        for (pkg in listOf(PKG_DOCUMENTSUI_GOOGLE, PKG_DOCUMENTSUI_AOSP)) {
+            if (!isPackageInstalled(context, pkg)) continue
+            for (uri in docUris) {
+                val intents = listOf(
+                    dirViewIntent(uri, DocumentsContract.Document.MIME_TYPE_DIR).apply {
+                        setClassName(pkg, ACTIVITY_DOCUMENTSUI_FILES)
+                    },
+                    browseIntent(uri).apply {
+                        setClassName(pkg, ACTIVITY_DOCUMENTSUI_FILES)
+                    },
+                    dirViewIntent(uri, DocumentsContract.Document.MIME_TYPE_DIR).apply {
+                        setPackage(pkg)
+                    },
+                )
+                for (intent in intents) {
+                    if (tryStart(context, intent, requireResolved = true)) {
+                        return OpenInFilesResult(opened = true)
+                    }
+                }
+            }
+        }
+
+        // Samsung My Files
+        if (isPackageInstalled(context, PKG_SAMSUNG_MYFILES)) {
+            val samsung = listOf(
+                Intent("samsung.myfiles.intent.action.LAUNCH_MY_FILES").apply {
+                    setPackage(PKG_SAMSUNG_MYFILES)
+                    putExtra("samsung.myfiles.intent.extra.START_PATH", abs)
+                    putExtra("FOLDERPATH", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent("com.sec.android.app.myfiles.VIEW").apply {
+                    setPackage(PKG_SAMSUNG_MYFILES)
+                    putExtra("FOLDERPATH", abs)
+                    putExtra("com.sec.android.app.myfiles.PICK_DATA", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(PKG_SAMSUNG_MYFILES, "com.sec.android.app.myfiles.external.ui.MainActivity")
+                    putExtra("FOLDERPATH", abs)
+                    putExtra("samsung.myfiles.intent.extra.START_PATH", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+            for (intent in samsung) {
+                if (tryStart(context, intent, requireResolved = true)) {
+                    return OpenInFilesResult(opened = true)
+                }
+                if (tryStart(context, intent, requireResolved = false)) {
+                    return OpenInFilesResult(opened = true)
+                }
+            }
+        }
+
+        // Mi / Xiaomi File Manager
+        for (pkg in listOf(PKG_MI_GLOBAL, PKG_MI_CN)) {
+            if (!isPackageInstalled(context, pkg)) continue
+            val mi = listOf(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, "resource/folder")
+                    setPackage(pkg)
+                    putExtra("current_directory", abs)
+                    putExtra("folder_path", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent(Intent.ACTION_VIEW).apply {
+                    setClassName(pkg, "com.android.fileexplorer.FileExplorerTabActivity")
+                    setDataAndType(fileUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    putExtra("current_directory", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+            for (intent in mi) {
+                if (tryStart(context, intent, requireResolved = true)) {
+                    return OpenInFilesResult(opened = true)
+                }
+            }
+        }
+
+        // Solid Explorer, Amaze, FX — path extras / VIEW when present
+        if (isPackageInstalled(context, PKG_SOLID_EXPLORER)) {
+            val solid = listOf(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setPackage(PKG_SOLID_EXPLORER)
+                    setDataAndType(fileUri, "resource/folder")
+                    putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent(Intent.ACTION_VIEW).apply {
+                    setPackage(PKG_SOLID_EXPLORER)
+                    setDataAndType(plainDocUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                },
+            )
+            for (intent in solid) {
+                if (tryStart(context, intent, requireResolved = true)) {
+                    return OpenInFilesResult(opened = true)
+                }
+            }
+        }
+        if (isPackageInstalled(context, PKG_AMAZE)) {
+            val amaze = Intent(Intent.ACTION_VIEW).apply {
+                setPackage(PKG_AMAZE)
+                setDataAndType(fileUri, "resource/folder")
+                putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (tryStart(context, amaze, requireResolved = true)) {
+                return OpenInFilesResult(opened = true)
+            }
+        }
+        if (isPackageInstalled(context, PKG_FX)) {
+            val fx = Intent(Intent.ACTION_VIEW).apply {
+                setPackage(PKG_FX)
+                setDataAndType(fileUri, "resource/folder")
+                putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (tryStart(context, fx, requireResolved = true)) {
+                return OpenInFilesResult(opened = true)
+            }
+        }
+
+        // Google Files app (not always directory-capable, but try)
+        if (isPackageInstalled(context, PKG_GOOGLE_FILES)) {
+            val g = dirViewIntent(plainDocUri, DocumentsContract.Document.MIME_TYPE_DIR).apply {
+                setPackage(PKG_GOOGLE_FILES)
+            }
+            if (tryStart(context, g, requireResolved = true)) {
+                return OpenInFilesResult(opened = true)
+            }
+        }
+
+        // --- 2) queryIntentActivities MATCH_ALL for directory VIEW ---
+        val handlers = queryDirectoryViewHandlers(context, docUris, dirMimes, fileUri)
+        if (handlers.isNotEmpty()) {
+            val best = handlers.first()
+            val explicit = Intent(best.first).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                setClassName(best.second.activityInfo.packageName, best.second.activityInfo.name)
+            }
+            if (tryStart(context, explicit, requireResolved = false)) {
+                return OpenInFilesResult(opened = true)
+            }
+            // Chooser only when we know at least one handler exists
+            val primary = Intent(handlers.first().first).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                setClassName(
+                    handlers.first().second.activityInfo.packageName,
+                    handlers.first().second.activityInfo.name,
+                )
+            }
+            val alts = handlers.drop(1).take(4).map { (base, ri) ->
+                Intent(base).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    setClassName(ri.activityInfo.packageName, ri.activityInfo.name)
+                }
+            }.toTypedArray()
+            val chooser = Intent.createChooser(primary, "Open folder with").apply {
+                if (alts.isNotEmpty()) {
+                    putExtra(Intent.EXTRA_INITIAL_INTENTS, alts)
+                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (tryStart(context, chooser, requireResolved = false)) {
+                return OpenInFilesResult(opened = true)
+            }
+        }
+
+        // --- 3) Nothing can open — clear message + copy path (optional Play Store) ---
+        return failOpenInFiles(
+            context,
+            abs,
+            "No file manager on this phone accepts folder opens from other apps. " +
+                "Use the in-app list, or paste the path in Material Files.",
+        )
+    }
+
+    fun materialFilesPlayStoreIntent(): Intent =
+        Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("market://details?id=$PKG_MATERIAL_FILES"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    fun materialFilesPlayStoreWebIntent(): Intent =
+        Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://play.google.com/store/apps/details?id=$PKG_MATERIAL_FILES"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    fun launchMaterialFilesStore(context: Context): Boolean {
+        if (tryStart(context, materialFilesPlayStoreIntent(), requireResolved = true)) return true
+        return tryStart(context, materialFilesPlayStoreWebIntent(), requireResolved = false)
+    }
+
+    private fun failOpenInFiles(context: Context, abs: String, message: String): OpenInFilesResult {
+        copyPathToClipboard(context, abs)
+        return OpenInFilesResult(
+            opened = false,
+            pathCopied = true,
+            suggestInstallMaterialFiles = !isPackageInstalled(context, PKG_MATERIAL_FILES),
+            message = message,
+        )
+    }
+
+    private fun primaryRelativePath(abs: String): String? {
+        val primaryRoot = try {
+            Environment.getExternalStorageDirectory().canonicalFile.absolutePath
+        } catch (_: Exception) {
+            Environment.getExternalStorageDirectory().absolutePath
+        }
+        return when {
+            abs == primaryRoot -> ""
+            abs.startsWith("$primaryRoot/") -> abs.removePrefix("$primaryRoot/").trim('/')
+            abs.startsWith("/sdcard/") -> abs.removePrefix("/sdcard/").trim('/')
+            abs.startsWith("/storage/emulated/0/") -> abs.removePrefix("/storage/emulated/0/").trim('/')
+            else -> null
+        }
+    }
+
+    private fun dirViewIntent(uri: Uri, mime: String): Intent =
+        Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
             addCategory(Intent.CATEGORY_DEFAULT)
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -439,38 +736,85 @@ object StorageHelper {
             putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
         }
 
-        // Explicit Material Files with document URI (preferred third-party).
-        val materialIntents = listOf(
-            dirView(plainDocUri).apply { setPackage("me.zhanghai.android.files") },
-            dirView(encodedDoc).apply { setPackage("me.zhanghai.android.files") },
-            dirView(folderDocUnderTs).apply { setPackage("me.zhanghai.android.files") },
-        )
-        for (intent in materialIntents) {
-            if (tryStart(context, intent, requireResolved = true)) return true
+    private fun browseIntent(uri: Uri): Intent =
+        Intent("android.provider.action.BROWSE").apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+            setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+            )
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
         }
 
-        val primary = dirView(encodedDoc)
-        val alts = arrayListOf(
-            dirView(plainDocUri),
-            dirView(folderDocUnderTs),
-            dirView(folderDocUnderPrimary),
-            Intent("android.provider.action.BROWSE").apply {
-                addCategory(Intent.CATEGORY_DEFAULT)
-                setDataAndType(plainDocUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+    private fun isPackageInstalled(context: Context, packageName: String): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0),
                 )
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI, plainDocUri)
-            },
-        )
-        val chooser = Intent.createChooser(primary, "Open folder with").apply {
-            putExtra(Intent.EXTRA_INITIAL_INTENTS, alts.toTypedArray())
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, 0)
+            }
+            true
+        } catch (_: Exception) {
+            false
         }
-        // Chooser is the reliable external path; do not claim folder-focus success beyond launch.
-        return tryStart(context, chooser, requireResolved = false)
+    }
+
+    private fun queryDirectoryViewHandlers(
+        context: Context,
+        docUris: List<Uri>,
+        dirMimes: List<String>,
+        fileUri: Uri,
+    ): List<Pair<Intent, android.content.pm.ResolveInfo>> {
+        val pm = context.packageManager
+        val seen = linkedSetOf<String>()
+        val out = mutableListOf<Pair<Intent, android.content.pm.ResolveInfo>>()
+        val probeUris = docUris + fileUri
+        val flags = if (Build.VERSION.SDK_INT >= 33) {
+            PackageManager.ResolveInfoFlags.of(
+                (PackageManager.MATCH_ALL or PackageManager.MATCH_DEFAULT_ONLY).toLong(),
+            )
+        } else {
+            null
+        }
+        for (uri in probeUris) {
+            for (mime in dirMimes) {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mime)
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                    )
+                }
+                val list = try {
+                    if (flags != null) {
+                        pm.queryIntentActivities(intent, flags)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pm.queryIntentActivities(
+                            intent,
+                            PackageManager.MATCH_ALL or PackageManager.MATCH_DEFAULT_ONLY,
+                        )
+                    }
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                for (ri in list) {
+                    val ai = ri.activityInfo ?: continue
+                    // Skip our own package
+                    if (ai.packageName == context.packageName) continue
+                    val key = "${ai.packageName}/${ai.name}"
+                    if (seen.add(key)) out += intent to ri
+                }
+            }
+        }
+        return out
     }
 
     /**
@@ -537,169 +881,23 @@ object StorageHelper {
     }
 
     /**
-     * Open DocumentsUI / Files focused on [folder] (not storage root).
-     *
-     * Strategy:
-     * 1) Ensure the directory exists.
-     * 2) Map path under primary shared storage to DocumentsProvider id `primary:<rel>`.
-     * 3) Try BROWSE / VIEW with document-under-tree (tree `primary:threadsyphon` or `primary:`)
-     *    and plain document URIs + EXTRA_INITIAL_URI; Material Files via file:// path.
-     * 4) Path extras for OEM managers (still no FileProvider).
-     * 5) Stock Files at volume root only as last fallback (OEM residual limit).
-     *
-     * **Never** hands `content://…fileprovider…` to external file managers.
+     * Open [folder] in an external file manager. Delegates to [openInFilesChooser].
      */
-    fun openFolderInFileManager(context: Context, folder: File): Boolean {
-        // Prefer createChooser + document URI (OEM-safe). In-app ThreadFolderScreen is the reliable UX.
-        if (openInFilesChooser(context, folder)) return true
-        folder.mkdirs()
-        val abs = try {
-            folder.canonicalFile.absolutePath
-        } catch (_: Exception) {
-            folder.absolutePath
-        }
-        // Refuse to launch FileProvider / Android/data browse — callers must use shared path.
-        if (abs.contains("/Android/data/") || abs.contains("/Android/obb/")) {
-            return false
-        }
+    fun openFolderInFileManager(context: Context, folder: File): Boolean =
+        openInFilesChooser(context, folder).opened
 
-        val primaryRoot = try {
-            Environment.getExternalStorageDirectory().canonicalFile.absolutePath
-        } catch (_: Exception) {
-            Environment.getExternalStorageDirectory().absolutePath
-        }
-        val relative = when {
-            abs == primaryRoot -> ""
-            abs.startsWith("$primaryRoot/") -> abs.removePrefix("$primaryRoot/").trim('/')
-            abs.startsWith("/sdcard/") -> abs.removePrefix("/sdcard/").trim('/')
-            abs.startsWith("/storage/emulated/0/") -> abs.removePrefix("/storage/emulated/0/").trim('/')
-            else -> null
-        }
-
-        val folderFocused = mutableListOf<Intent>()
-        val rootFallback = mutableListOf<Intent>()
-
-        if (relative != null) {
-            val authority = "com.android.externalstorage.documents"
-            val docId = if (relative.isEmpty()) "primary:" else "primary:$relative"
-            val treePrimary = DocumentsContract.buildTreeDocumentUri(authority, "primary:")
-            val treeThreadsyphon = DocumentsContract.buildTreeDocumentUri(
-                authority,
-                "primary:${Constants.SHARED_ROOT_FOLDER}",
-            )
-            val folderDocUnderPrimary = DocumentsContract.buildDocumentUriUsingTree(treePrimary, docId)
-            val folderDocUnderTs = DocumentsContract.buildDocumentUriUsingTree(treeThreadsyphon, docId)
-            val plainDocUri = DocumentsContract.buildDocumentUri(authority, docId)
-            val folderTreeUri = DocumentsContract.buildTreeDocumentUri(authority, docId)
-            val rootDocUri = DocumentsContract.buildDocumentUri(authority, "primary:")
-
-            fun baseView(uri: Uri): Intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addCategory(Intent.CATEGORY_DEFAULT)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
-                )
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
-            }
-
-            fun browse(uri: Uri): Intent = Intent("android.provider.action.BROWSE").apply {
-                addCategory(Intent.CATEGORY_DEFAULT)
-                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
-                )
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
-            }
-
-            // Prefer folder-focused document URIs first.
-            folderFocused += browse(folderDocUnderTs)
-            folderFocused += browse(folderDocUnderPrimary)
-            folderFocused += browse(plainDocUri)
-            folderFocused += baseView(folderDocUnderTs)
-            folderFocused += baseView(folderDocUnderPrimary)
-            folderFocused += baseView(plainDocUri)
-            folderFocused += baseView(folderTreeUri)
-
-            val components = listOf(
-                "com.google.android.documentsui/com.android.documentsui.files.FilesActivity",
-                "com.android.documentsui/com.android.documentsui.files.FilesActivity",
-                "com.google.android.apps.nbu.files/com.google.android.apps.nbu.files.home.HomeActivity",
-                "com.sec.android.app.myfiles/com.sec.android.app.myfiles.external.ui.MainActivity",
-                "com.mi.android.globalFileexplorer/com.android.fileexplorer.FileExplorerTabActivity",
-                "com.android.fileexplorer/com.android.fileexplorer.FileExplorerTabActivity",
-                "me.zhanghai.android.files/me.zhanghai.android.files.filelist.FileListActivity",
-            )
-            for (component in components) {
-                val parts = component.split('/', limit = 2)
-                folderFocused += baseView(plainDocUri).apply { setClassName(parts[0], parts[1]) }
-                folderFocused += browse(plainDocUri).apply { setClassName(parts[0], parts[1]) }
-                folderFocused += baseView(folderDocUnderTs).apply { setClassName(parts[0], parts[1]) }
-                folderFocused += baseView(folderDocUnderPrimary).apply { setClassName(parts[0], parts[1]) }
-            }
-
-            val encodedDoc = Uri.parse(
-                "content://$authority/document/" + Uri.encode(docId),
-            )
-            folderFocused += baseView(encodedDoc)
-
-            // Volume-root fallback only after folder-focused attempts (OEM residual).
-            rootFallback += browse(rootDocUri)
-            rootFallback += baseView(rootDocUri)
-            for (component in components.take(3)) {
-                val parts = component.split('/', limit = 2)
-                rootFallback += baseView(rootDocUri).apply { setClassName(parts[0], parts[1]) }
-            }
-        }
-
-        // Material Files + other managers: absolute file:// path (never FileProvider).
-        val fileUri = Uri.parse("file://$abs")
-        folderFocused += Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(fileUri, DocumentsContract.Document.MIME_TYPE_DIR)
-            setPackage("me.zhanghai.android.files")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        folderFocused += Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(fileUri, "resource/folder")
-            setPackage("me.zhanghai.android.files")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        folderFocused += Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(fileUri, "resource/folder")
-            putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
-            putExtra("com.sec.android.app.myfiles.PICK_DATA", abs)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        folderFocused += Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(fileUri, DocumentsContract.Document.MIME_TYPE_DIR)
-            putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        folderFocused += Intent("com.sec.android.app.myfiles.VIEW").apply {
-            putExtra("FOLDERPATH", abs)
-            putExtra("com.sec.android.app.myfiles.PICK_DATA", abs)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        for (intent in folderFocused) {
-            if (tryStart(context, intent, requireResolved = true)) return true
-        }
-        for (intent in folderFocused) {
-            if (tryStart(context, intent, requireResolved = false)) return true
-        }
-        // Last: stock Files at volume root (documented OEM limit).
-        for (intent in rootFallback) {
-            if (tryStart(context, intent, requireResolved = true)) return true
-        }
-        for (intent in rootFallback) {
-            if (tryStart(context, intent, requireResolved = false)) return true
-        }
-        return false
-    }
+    private const val PKG_MATERIAL_FILES = "me.zhanghai.android.files"
+    private const val ACTIVITY_MATERIAL_FILES = "me.zhanghai.android.files.filelist.FileListActivity"
+    private const val PKG_DOCUMENTSUI_GOOGLE = "com.google.android.documentsui"
+    private const val PKG_DOCUMENTSUI_AOSP = "com.android.documentsui"
+    private const val ACTIVITY_DOCUMENTSUI_FILES = "com.android.documentsui.files.FilesActivity"
+    private const val PKG_SAMSUNG_MYFILES = "com.sec.android.app.myfiles"
+    private const val PKG_MI_GLOBAL = "com.mi.android.globalFileexplorer"
+    private const val PKG_MI_CN = "com.android.fileexplorer"
+    private const val PKG_SOLID_EXPLORER = "pl.solidexplorer2"
+    private const val PKG_AMAZE = "com.amaze.filemanager"
+    private const val PKG_FX = "nextapp.fx"
+    private const val PKG_GOOGLE_FILES = "com.google.android.apps.nbu.files"
 
     private fun tryStart(context: Context, intent: Intent, requireResolved: Boolean): Boolean {
         return try {

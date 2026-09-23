@@ -1,10 +1,10 @@
-# Parent: signed v1.0.6 APK on Windows
+# Parent: signed v1.0.7 APK on Windows
 
 Executor Shell had **no machineId parameter** this turn (all commands ran on the Linux box).
 Signed assembleRelease + APK upload must run with machineId `70bb9179-4335-4fcc-bad9-a454c964a3d7`.
 
-- Commit: `ef17abaf928a15e10f69f6f244018aa8cc102ad3`
-- Release (notes only until signed APK uploaded): https://github.com/cicalooo/threadsyphon-android/releases/tag/v1.0.6
+- Commit: (fill after commit)
+- Release (notes only until signed APK uploaded): https://github.com/cicalooo/threadsyphon-android/releases/tag/v1.0.7
 - Do not publish the unsigned box APK over signed installs.
 - Box verified compile: `app-release-unsigned.apk` (no keystore on box).
 
@@ -17,8 +17,8 @@ $env:JAVA_HOME = 'C:\Users\cyka\.jdks\jbr-21.0.11'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 .\gradlew.bat :app:assembleRelease --no-daemon
 New-Item -ItemType Directory -Force -Path 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks' | Out-Null
-Copy-Item 'app\build\outputs\apk\release\app-release.apk' 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.6-release.apk' -Force
-gh release upload v1.0.6 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.6-release.apk' --clobber --repo cicalooo/threadsyphon-android
+Copy-Item 'app\build\outputs\apk\release\app-release.apk' 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.7-release.apk' -Force
+gh release upload v1.0.7 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.7-release.apk' --clobber --repo cicalooo/threadsyphon-android
 ```
 
-Or: `.\scripts\build-release-1.0.6.ps1` then the `gh release upload` line above.
+Or: `.\scripts\build-release-1.0.7.ps1` then the `gh release upload` line above.
