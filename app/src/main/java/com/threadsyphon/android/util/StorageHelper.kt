@@ -25,6 +25,10 @@ data class OpenFolderOutcome(
     /** True when shared Internal storage/threadsyphon is desired but MANAGE_EXTERNAL_STORAGE is missing. */
     val needsAllFilesAccess: Boolean,
     val usedAppPrivateFallback: Boolean,
+    /** Files copied/moved from app-private staging into the shared thread folder. */
+    val migratedPrivateFiles: Int = 0,
+    /** Old media still only under Android/data staging (could not copy yet). */
+    val hadPrivateStagingOnly: Boolean = false,
 )
 
 object StorageHelper {
@@ -73,6 +77,10 @@ object StorageHelper {
      * SharedRoot prefers visible `/storage/emulated/0/threadsyphon` when writable
      * (all-files access or successful mkdirs). Falls back to app-external only when
      * shared storage is not writable so downloads still succeed.
+     *
+     * MediaStoreDownloads uses shared root as the working tree when writable
+     * (MediaStore publish still copies into Download/threadsyphon). Never use
+     * app-private `staging/` as the primary resolve root when shared is available.
      */
     fun resolveRoot(context: Context, settings: AppSettings): File {
         return when (settings.downloadLocation) {
@@ -90,8 +98,11 @@ object StorageHelper {
                 }
             }
             DownloadLocation.AppExternal -> appExternalRoot(context)
-            DownloadLocation.MediaStoreDownloads ->
-                File(appExternalRoot(context), "staging").also { it.mkdirs() }
+            DownloadLocation.MediaStoreDownloads -> {
+                val shared = sharedRoot()
+                if (ensureWritableDir(shared)) shared
+                else File(appExternalRoot(context), "staging").also { it.mkdirs() }
+            }
         }
     }
 
@@ -205,13 +216,63 @@ object StorageHelper {
         cm.setPrimaryClip(ClipData.newPlainText("folder", path))
     }
 
+    /** App-private dirs that older builds used for MediaStore staging / AppExternal. */
+    fun privateThreadCandidates(context: Context, board: String, threadNo: Long): List<File> {
+        val appRoot = appExternalRoot(context)
+        return listOf(
+            File(appRoot, "staging/$board/$threadNo"),
+            File(appRoot, "$board/$threadNo"),
+        )
+    }
+
+    fun privateThreadHasMedia(context: Context, board: String, threadNo: Long): Boolean {
+        return privateThreadCandidates(context, board, threadNo).any { dir ->
+            dir.isDirectory && dir.listFiles()?.any { it.isFile && !it.name.endsWith(".part") } == true
+        }
+    }
+
     /**
-     * Choose the best folder to open for a thread and launch a file manager.
+     * Copy/move leftover app-private thread media into [dest] (shared folder).
+     * @return number of files newly placed in [dest]
+     */
+    fun migratePrivateThreadMediaToShared(
+        context: Context,
+        board: String,
+        threadNo: Long,
+        dest: File,
+    ): Int {
+        if (!ensureWritableDir(dest)) return 0
+        var moved = 0
+        for (src in privateThreadCandidates(context, board, threadNo)) {
+            if (!src.isDirectory) continue
+            val files = src.listFiles() ?: continue
+            for (f in files) {
+                if (!f.isFile || f.name.endsWith(".part")) continue
+                val target = File(dest, f.name)
+                try {
+                    if (target.exists() && target.length() == f.length()) {
+                        f.delete()
+                        continue
+                    }
+                    f.copyTo(target, overwrite = true)
+                    if (target.exists() && target.length() == f.length()) {
+                        f.delete()
+                        moved++
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return moved
+    }
+
+    /**
+     * Open the shared Internal storage/threadsyphon/<board>/<tid> folder in a file manager.
      *
-     * Prefer shared Internal storage/threadsyphon when settings ask for SharedRoot
-     * (including after legacy AppExternal migration). Create the directory first.
-     * If shared is not writable / all-files missing, still try hard to open whatever
-     * dir exists, and report [OpenFolderOutcome.needsAllFilesAccess].
+     * Never hands FileProvider content URIs to external managers (they cannot browse
+     * Android/data). Without all-files access on API 30+, does not pretend open worked —
+     * returns [OpenFolderOutcome.needsAllFilesAccess] so UI can launch settings and copy
+     * the filesystem path.
      */
     fun openThreadFolder(
         context: Context,
@@ -219,46 +280,67 @@ object StorageHelper {
         threadNo: Long,
         settings: AppSettings,
     ): OpenFolderOutcome {
-        val wantsShared = settings.downloadLocation == DownloadLocation.SharedRoot ||
-            settings.downloadLocation == DownloadLocation.AppExternal
         val sharedFolder = sharedThreadFolder(board, threadNo)
-        val configured = threadFolder(context, board, threadNo, settings)
-        val needsAllFiles = wantsShared &&
+        val custom = if (settings.downloadLocation == DownloadLocation.CustomPath) {
+            customRoot(settings.customRootPath)?.let { File(it, "$board/$threadNo") }
+        } else {
+            null
+        }
+        // Always prefer shared path for Open folder (CustomPath opens the custom tree).
+        val targetFolder = custom ?: sharedFolder
+        val needsAllFiles = (custom == null) &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
             !hasAllFilesAccess()
 
-        val folder = when {
-            wantsShared && ensureWritableDir(sharedFolder) -> sharedFolder
-            wantsShared && sharedFolder.exists() -> sharedFolder
-            else -> configured.also { it.mkdirs() }
+        if (needsAllFiles) {
+            val hadPrivate = privateThreadHasMedia(context, board, threadNo)
+            return OpenFolderOutcome(
+                opened = false,
+                folder = sharedFolder,
+                needsAllFilesAccess = true,
+                usedAppPrivateFallback = false,
+                migratedPrivateFiles = 0,
+                hadPrivateStagingOnly = hadPrivate,
+            )
         }
-        // Always ensure target exists before launching Files.
-        folder.mkdirs()
 
-        val opened = openFolderInFileManager(context, folder)
-        val usedPrivate = isUnderAppPrivate(context, folder)
+        // Create shared (or custom) dirs now that we can write.
+        targetFolder.mkdirs()
+        ensureWritableDir(targetFolder)
+
+        val migrated = if (custom == null) {
+            migratePrivateThreadMediaToShared(context, board, threadNo, sharedFolder)
+        } else {
+            0
+        }
+        val stillPrivateOnly = custom == null &&
+            migrated == 0 &&
+            privateThreadHasMedia(context, board, threadNo) &&
+            (targetFolder.listFiles()?.none { it.isFile } != false)
+
+        val opened = openFolderInFileManager(context, targetFolder)
         return OpenFolderOutcome(
             opened = opened,
-            folder = folder,
-            needsAllFilesAccess = needsAllFiles || (wantsShared && usedPrivate),
-            usedAppPrivateFallback = usedPrivate && wantsShared,
+            folder = targetFolder,
+            needsAllFilesAccess = false,
+            usedAppPrivateFallback = false,
+            migratedPrivateFiles = migrated,
+            hadPrivateStagingOnly = stillPrivateOnly,
         )
     }
 
     /**
      * Open DocumentsUI / Files focused on [folder] (not storage root).
      *
-     * Strategy (Android 14/15 OEM):
+     * Strategy:
      * 1) Ensure the directory exists.
      * 2) Map path under primary shared storage to DocumentsProvider id `primary:<rel>`.
-     * 3) Try BROWSE / VIEW with document-under-tree and plain document URIs,
-     *    including explicit DocumentsUI / Google Files / OEM My Files components.
-     * 4) Try FileProvider directory VIEW + common path extras.
-     * 5) Start activities even when resolveActivity is null (package visibility),
-     *    catching ActivityNotFoundException.
+     * 3) Try BROWSE / VIEW with document-under-tree (tree `primary:threadsyphon` or `primary:`)
+     *    and plain document URIs + EXTRA_INITIAL_URI; Material Files via file:// path.
+     * 4) Path extras for OEM managers (still no FileProvider).
+     * 5) Stock Files at volume root only as last fallback (OEM residual limit).
      *
-     * App-private `Android/data/...` trees are often hidden from DocumentsUI —
-     * callers should prefer [openThreadFolder] which migrates toward shared root.
+     * **Never** hands `content://…fileprovider…` to external file managers.
      */
     fun openFolderInFileManager(context: Context, folder: File): Boolean {
         folder.mkdirs()
@@ -267,6 +349,11 @@ object StorageHelper {
         } catch (_: Exception) {
             folder.absolutePath
         }
+        // Refuse to launch FileProvider / Android/data browse — callers must use shared path.
+        if (abs.contains("/Android/data/") || abs.contains("/Android/obb/")) {
+            return false
+        }
+
         val primaryRoot = try {
             Environment.getExternalStorageDirectory().canonicalFile.absolutePath
         } catch (_: Exception) {
@@ -280,15 +367,22 @@ object StorageHelper {
             else -> null
         }
 
-        val intents = mutableListOf<Intent>()
+        val folderFocused = mutableListOf<Intent>()
+        val rootFallback = mutableListOf<Intent>()
+
         if (relative != null) {
             val authority = "com.android.externalstorage.documents"
             val docId = if (relative.isEmpty()) "primary:" else "primary:$relative"
-            val treeRootUri = DocumentsContract.buildTreeDocumentUri(authority, "primary:")
-            val folderDocUri = DocumentsContract.buildDocumentUriUsingTree(treeRootUri, docId)
+            val treePrimary = DocumentsContract.buildTreeDocumentUri(authority, "primary:")
+            val treeThreadsyphon = DocumentsContract.buildTreeDocumentUri(
+                authority,
+                "primary:${Constants.SHARED_ROOT_FOLDER}",
+            )
+            val folderDocUnderPrimary = DocumentsContract.buildDocumentUriUsingTree(treePrimary, docId)
+            val folderDocUnderTs = DocumentsContract.buildDocumentUriUsingTree(treeThreadsyphon, docId)
             val plainDocUri = DocumentsContract.buildDocumentUri(authority, docId)
-            // Also try a tree URI rooted at the folder itself (some OEM Files apps).
             val folderTreeUri = DocumentsContract.buildTreeDocumentUri(authority, docId)
+            val rootDocUri = DocumentsContract.buildDocumentUri(authority, "primary:")
 
             fun baseView(uri: Uri): Intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
@@ -299,6 +393,7 @@ object StorageHelper {
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                         Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
                 )
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
             }
 
             fun browse(uri: Uri): Intent = Intent("android.provider.action.BROWSE").apply {
@@ -309,15 +404,18 @@ object StorageHelper {
                         Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
                 )
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
             }
 
-            intents += browse(folderDocUri)
-            intents += browse(plainDocUri)
-            intents += baseView(folderDocUri)
-            intents += baseView(plainDocUri)
-            intents += baseView(folderTreeUri)
+            // Prefer folder-focused document URIs first.
+            folderFocused += browse(folderDocUnderTs)
+            folderFocused += browse(folderDocUnderPrimary)
+            folderFocused += browse(plainDocUri)
+            folderFocused += baseView(folderDocUnderTs)
+            folderFocused += baseView(folderDocUnderPrimary)
+            folderFocused += baseView(plainDocUri)
+            folderFocused += baseView(folderTreeUri)
 
-            // Explicit DocumentsUI / Google Files / OEM file manager activities.
             val components = listOf(
                 "com.google.android.documentsui/com.android.documentsui.files.FilesActivity",
                 "com.android.documentsui/com.android.documentsui.files.FilesActivity",
@@ -325,78 +423,70 @@ object StorageHelper {
                 "com.sec.android.app.myfiles/com.sec.android.app.myfiles.external.ui.MainActivity",
                 "com.mi.android.globalFileexplorer/com.android.fileexplorer.FileExplorerTabActivity",
                 "com.android.fileexplorer/com.android.fileexplorer.FileExplorerTabActivity",
+                "me.zhanghai.android.files/me.zhanghai.android.files.filelist.FileListActivity",
             )
             for (component in components) {
                 val parts = component.split('/', limit = 2)
-                intents += baseView(folderDocUri).apply { setClassName(parts[0], parts[1]) }
-                intents += browse(folderDocUri).apply { setClassName(parts[0], parts[1]) }
-                intents += baseView(plainDocUri).apply { setClassName(parts[0], parts[1]) }
+                folderFocused += baseView(plainDocUri).apply { setClassName(parts[0], parts[1]) }
+                folderFocused += browse(plainDocUri).apply { setClassName(parts[0], parts[1]) }
+                folderFocused += baseView(folderDocUnderTs).apply { setClassName(parts[0], parts[1]) }
+                folderFocused += baseView(folderDocUnderPrimary).apply { setClassName(parts[0], parts[1]) }
             }
 
-            // content://…/document/primary%3Athreadsyphon%2Fboard%2Ftid (explicit string form)
             val encodedDoc = Uri.parse(
                 "content://$authority/document/" + Uri.encode(docId),
             )
-            intents += baseView(encodedDoc)
+            folderFocused += baseView(encodedDoc)
+
+            // Volume-root fallback only after folder-focused attempts (OEM residual).
+            rootFallback += browse(rootDocUri)
+            rootFallback += baseView(rootDocUri)
+            for (component in components.take(3)) {
+                val parts = component.split('/', limit = 2)
+                rootFallback += baseView(rootDocUri).apply { setClassName(parts[0], parts[1]) }
+            }
         }
 
-        // FileProvider content URI for the directory (paths covered in file_paths.xml).
-        try {
-            val fpUri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                folder,
-            )
-            intents += Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(fpUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            intents += Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(fpUri, "resource/folder")
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            intents += Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(fpUri, "*/*")
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-        } catch (_: Exception) {
-        }
-
-        // Path-based extras used by Solid Explorer, FX, Amaze, Mi/Samsung My Files, etc.
-        val fileUri = Uri.parse("file://${folder.absolutePath}")
-        intents += Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(fileUri, "resource/folder")
-            putExtra("org.openintents.extra.ABSOLUTE_PATH", folder.absolutePath)
-            putExtra("com.sec.android.app.myfiles.PICK_DATA", folder.absolutePath)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        intents += Intent(Intent.ACTION_VIEW).apply {
+        // Material Files + other managers: absolute file:// path (never FileProvider).
+        val fileUri = Uri.parse("file://$abs")
+        folderFocused += Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(fileUri, DocumentsContract.Document.MIME_TYPE_DIR)
-            putExtra("org.openintents.extra.ABSOLUTE_PATH", folder.absolutePath)
+            setPackage("me.zhanghai.android.files")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        // Samsung My Files browse-by-path
-        intents += Intent("com.sec.android.app.myfiles.VIEW").apply {
-            putExtra("FOLDERPATH", folder.absolutePath)
-            putExtra("com.sec.android.app.myfiles.PICK_DATA", folder.absolutePath)
+        folderFocused += Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(fileUri, "resource/folder")
+            setPackage("me.zhanghai.android.files")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        folderFocused += Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(fileUri, "resource/folder")
+            putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
+            putExtra("com.sec.android.app.myfiles.PICK_DATA", abs)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        folderFocused += Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(fileUri, DocumentsContract.Document.MIME_TYPE_DIR)
+            putExtra("org.openintents.extra.ABSOLUTE_PATH", abs)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        folderFocused += Intent("com.sec.android.app.myfiles.VIEW").apply {
+            putExtra("FOLDERPATH", abs)
+            putExtra("com.sec.android.app.myfiles.PICK_DATA", abs)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        // 1) Prefer intents that resolve (with queries declared in manifest).
-        for (intent in intents) {
+        for (intent in folderFocused) {
             if (tryStart(context, intent, requireResolved = true)) return true
         }
-        // 2) Blind start — package visibility may hide resolveActivity results.
-        for (intent in intents) {
+        for (intent in folderFocused) {
+            if (tryStart(context, intent, requireResolved = false)) return true
+        }
+        // Last: stock Files at volume root (documented OEM limit).
+        for (intent in rootFallback) {
+            if (tryStart(context, intent, requireResolved = true)) return true
+        }
+        for (intent in rootFallback) {
             if (tryStart(context, intent, requireResolved = false)) return true
         }
         return false

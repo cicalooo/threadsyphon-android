@@ -120,8 +120,11 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
                 onClick = {
                     scope.launch {
                         var settings = repository.currentSettings()
-                        // Legacy AppExternal → prefer shared; persist migration.
-                        if (settings.downloadLocation == DownloadLocation.AppExternal) {
+                        // Legacy AppExternal / MediaStoreDownloads → shared root.
+                        if (
+                            settings.downloadLocation == DownloadLocation.AppExternal ||
+                            settings.downloadLocation == DownloadLocation.MediaStoreDownloads
+                        ) {
                             repository.updateSettings {
                                 it.copy(downloadLocation = DownloadLocation.SharedRoot)
                             }
@@ -133,33 +136,48 @@ fun ThreadDetailScreen(threadId: String, repository: WatchRepository, onBack: ()
                             t.threadNo,
                             settings,
                         )
-                        if (outcome.opened) {
-                            if (outcome.needsAllFilesAccess) {
-                                Toast.makeText(
-                                    context,
-                                    "Opened app folder — grant All files access for Internal storage/threadsyphon",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                                try {
-                                    context.startActivity(StorageHelper.allFilesAccessIntent(context))
-                                } catch (_: Exception) {
-                                }
-                            }
-                            return@launch
-                        }
-                        // Last resort: clipboard + clear toast; offer all-files grant.
-                        StorageHelper.copyPathToClipboard(context, outcome.folder.absolutePath)
-                        Toast.makeText(
-                            context,
-                            "Couldn't open Files — path copied: ${outcome.folder.absolutePath}",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        val path = outcome.folder.absolutePath
                         if (outcome.needsAllFilesAccess) {
+                            // Do not pretend open worked; copy filesystem path (never FileProvider URI).
+                            StorageHelper.copyPathToClipboard(context, path)
+                            val stagingNote = if (outcome.hadPrivateStagingOnly) {
+                                " Older files may still be under app-private staging until you grant access."
+                            } else {
+                                ""
+                            }
+                            Toast.makeText(
+                                context,
+                                "Grant All files access to open Internal storage/threadsyphon — path copied: $path.$stagingNote",
+                                Toast.LENGTH_LONG,
+                            ).show()
                             try {
                                 context.startActivity(StorageHelper.allFilesAccessIntent(context))
                             } catch (_: Exception) {
                             }
+                            return@launch
                         }
+                        if (outcome.opened) {
+                            if (outcome.migratedPrivateFiles > 0) {
+                                Toast.makeText(
+                                    context,
+                                    "Moved ${outcome.migratedPrivateFiles} file(s) from private staging into $path",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else if (outcome.hadPrivateStagingOnly) {
+                                Toast.makeText(
+                                    context,
+                                    "Opened shared folder. Some older files remain under app-private staging.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                            return@launch
+                        }
+                        StorageHelper.copyPathToClipboard(context, path)
+                        Toast.makeText(
+                            context,
+                            "Couldn't open Files — path copied: $path",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

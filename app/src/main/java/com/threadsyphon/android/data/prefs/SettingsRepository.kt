@@ -39,6 +39,7 @@ class SettingsRepository(private val context: Context) {
         val FIND_BOARD = stringPreferencesKey("find_board")
         val FIND_QUERY = stringPreferencesKey("find_query")
         val MIGRATED_SHARED_ROOT_V104 = booleanPreferencesKey("migrated_shared_root_v104")
+        val MIGRATED_SHARED_ROOT_V105 = booleanPreferencesKey("migrated_shared_root_v105")
     }
 
     private fun Preferences.toSettings(): AppSettings = AppSettings(
@@ -117,18 +118,24 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
-     * One-time: MVP defaulted to AppExternal (Android/data/…). Move those installs
-     * to SharedRoot so downloads + Open folder use Internal storage/threadsyphon.
-     * Users who later pick AppExternal again are left alone (flag already set).
+     * One-time: MVP defaulted to AppExternal / MediaStoreDownloads (app-private
+     * staging under Android/data/…). Move those installs to SharedRoot so downloads
+     * + Open folder use Internal storage/threadsyphon.
+     * Users who later pick AppExternal / MediaStore again are left alone (flag set).
      */
     suspend fun migrateLegacyAppExternalToSharedRootOnce() {
         context.dataStore.edit { prefs ->
-            if (prefs[Keys.MIGRATED_SHARED_ROOT_V104] == true) return@edit
+            if (prefs[Keys.MIGRATED_SHARED_ROOT_V105] == true) return@edit
             val loc = prefs[Keys.DOWNLOAD_LOCATION]
-            if (loc == null || loc == DownloadLocation.AppExternal.name) {
+            if (
+                loc == null ||
+                loc == DownloadLocation.AppExternal.name ||
+                loc == DownloadLocation.MediaStoreDownloads.name
+            ) {
                 prefs[Keys.DOWNLOAD_LOCATION] = DownloadLocation.SharedRoot.name
             }
             prefs[Keys.MIGRATED_SHARED_ROOT_V104] = true
+            prefs[Keys.MIGRATED_SHARED_ROOT_V105] = true
         }
     }
 

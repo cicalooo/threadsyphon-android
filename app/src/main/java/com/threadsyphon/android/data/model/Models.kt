@@ -18,7 +18,7 @@ object Constants {
     )
     val IMAGE_EXTS = setOf(".jpg", ".jpeg", ".png", ".gif", ".webp")
     val VIDEO_EXTS = setOf(".webm", ".mp4")
-    const val USER_AGENT = "threadsyphon-android/1.0.4 (+mobile thread archiver; respectful polling)"
+    const val USER_AGENT = "threadsyphon-android/1.0.5 (+mobile thread archiver; respectful polling)"
     const val API_BASE = "https://a.4cdn.org"
     const val CDN_BASE = "https://i.4cdn.org"
     const val FREE_SPACE_RESERVE_BYTES = 8L * 1024 * 1024
