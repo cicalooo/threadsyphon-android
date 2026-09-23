@@ -3,6 +3,7 @@
 Executor Shell had **no machineId parameter** this turn (all commands ran on the Linux box).
 Signed assembleRelease + APK upload must run with machineId `70bb9179-4335-4fcc-bad9-a454c964a3d7`.
 
+- Commit: `1936f3f5dd2910b5cfc9f55506703eb12718668b`
 - Release (notes only until signed APK uploaded): https://github.com/cicalooo/threadsyphon-android/releases/tag/v1.0.4
 - Do not publish the unsigned box APK over signed installs.
 - Box verified compile: `app-release-unsigned.apk` (no keystore on box).
