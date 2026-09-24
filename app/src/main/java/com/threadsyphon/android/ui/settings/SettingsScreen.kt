@@ -324,7 +324,7 @@ fun SettingsScreen(repository: WatchRepository) {
             HorizontalDivider()
             Text("Battery / keep-alive", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text(
-                "threadsyphon is always-watching. Grant unrestricted battery and (on Samsung) add it to Never sleeping apps so the watcher notification stays up overnight.",
+                "threadsyphon is always-watching. The reliable path on Samsung (and most OEMs) is App info → Battery → Unrestricted, plus Ignore battery optimizations below. Keep-alive / heartbeat from 1.0.8 still runs.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
@@ -340,30 +340,30 @@ fun SettingsScreen(repository: WatchRepository) {
                 ignoringBattery = BatteryHelper.isIgnoringBatteryOptimizations(context)
                 Toast.makeText(context, "Confirm unrestricted, then return", Toast.LENGTH_SHORT).show()
             }) { Text("Ignore battery optimizations") }
+            OutlinedButton(onClick = {
+                BatteryHelper.openAppDetails(context)
+                Toast.makeText(
+                    context,
+                    "App info → Battery → Unrestricted (and ignore optimizations if offered)",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }) { Text("App info (battery → Unrestricted)") }
             Text(
-                "Samsung Never sleeping apps: the list only shows apps already added. Tap + (or Add), find threadsyphon, then Add. It will not appear until you add it.",
+                "Samsung Never sleeping apps: some One UI / Device Care builds omit sideloaded apps from the Add (+) list — threadsyphon may never appear there. That is a Samsung allowlist limitation, not something this app can force. If the app is missing from Add, skip Never sleeping and use Unrestricted + Ignore battery optimizations above.",
                 style = MaterialTheme.typography.bodySmall,
             )
             OutlinedButton(onClick = {
                 val result = BatteryHelper.openOemBackgroundAllowlist(context)
                 val msg = when (result) {
                     BatteryHelper.OemOpenResult.SamsungNeverSleeping ->
-                        "Never sleeping list opened — tap +, pick threadsyphon, Add"
+                        "Never sleeping opened — if threadsyphon is listed under +, you can add it; if not, use App info → Unrestricted"
                     BatteryHelper.OemOpenResult.SamsungBattery ->
-                        "Device Care Battery opened — Background usage limits → Never sleeping apps → +"
+                        "Device Care Battery opened — if Never sleeping Add omits this app, use App info → Unrestricted"
                     BatteryHelper.OemOpenResult.AppDetails ->
-                        "Opened app info — Battery → Unrestricted (then add via Never sleeping +)"
+                        "Opened app info — Battery → Unrestricted (Never sleeping may omit sideloads)"
                 }
                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }) { Text("Never sleeping apps (tap + to add)") }
-            OutlinedButton(onClick = {
-                BatteryHelper.openAppDetails(context)
-                Toast.makeText(
-                    context,
-                    "App info — Battery / Allow background → Unrestricted",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }) { Text("App info (battery for this app)") }
+            }) { Text("Never sleeping apps (optional, if listed)") }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val exactOk = BatteryHelper.canScheduleExactAlarms(context)
                 Text(
@@ -394,7 +394,7 @@ fun SettingsScreen(repository: WatchRepository) {
 
             HorizontalDivider()
             Text(
-                "threadsyphon Android 1.0.9 · Always watching · No account",
+                "threadsyphon Android 1.0.10 · Always watching · No account",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

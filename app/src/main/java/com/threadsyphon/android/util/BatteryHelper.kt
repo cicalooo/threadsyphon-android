@@ -59,9 +59,11 @@ object BatteryHelper {
      *   package = com.samsung.android.lool (or legacy com.samsung.android.sm)
      *   extra activity_type = 2  // never sleeping
      *
-     * That screen lists only apps already allowed. To ADD threadsyphon the user
-     * must tap + (or Add), pick the app, then confirm. There is no Intent that
-     * auto-adds or opens the picker pre-selected.
+     * That screen lists apps already allowed. To ADD an app the user must tap
+     * + (or Add), pick it, then confirm. There is no Intent that auto-adds or
+     * opens the picker pre-selected. Some One UI builds omit sideloaded apps
+     * from the Add (+) list entirely — then Never sleeping cannot enroll this
+     * package; use App info → Battery → Unrestricted instead.
      *
      * Older code opened CheckableAppListActivity / BatteryActivity by class name
      * without activity_type=2, which often landed on the wrong list (or a view

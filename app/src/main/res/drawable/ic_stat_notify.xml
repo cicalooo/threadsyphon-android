@@ -4,11 +4,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Arrow shaft -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M11,3h2v9h3.5L12,17.5 7.5,12H11V3z" />
-    <!-- Tray -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M4,18h16v1.5c0,0.8 -0.7,1.5 -1.5,1.5h-13C4.7,21 4,20.3 4,19.5V18zM5.5,16h13l1,2h-15l1,-2z" />

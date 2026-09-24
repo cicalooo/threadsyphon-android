@@ -1,6 +1,7 @@
 package com.threadsyphon.android.ui.threads
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,8 +53,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.threadsyphon.android.R
 import com.threadsyphon.android.data.db.WatchedThreadEntity
 import com.threadsyphon.android.ui.components.ThumbnailImage
 import com.threadsyphon.android.data.engine.WatchRepository
@@ -94,13 +99,31 @@ fun ThreadListScreen(repository: WatchRepository, onOpenDetail: (String) -> Unit
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        when {
-                            selected.isNotEmpty() -> "${selected.size} selected"
-                            showFinished -> "Finished"
-                            else -> "Active"
-                        },
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_brand_mark),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "threadsyphon",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                when {
+                                    selected.isNotEmpty() -> "${selected.size} selected"
+                                    showFinished -> "Finished"
+                                    else -> "Active"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 },
                 actions = {
                     if (selected.isNotEmpty()) {

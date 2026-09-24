@@ -1,6 +1,6 @@
 # ThreadSyphon Android
 
-Native **Kotlin + Jetpack Compose (Material 3)** port (v1.0.9) of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
+Native **Kotlin + Jetpack Compose (Material 3)** port (v1.0.10) of [ThreadSyphon](https://github.com/cicalooo/threadsyphon) — a 4chan thread watcher / media saver.
 
 No accounts. No telemetry. HTTP is only used to check threads (`a.4cdn.org`), search catalogs, and download media you asked for (`i.4cdn.org`).
 
@@ -100,7 +100,7 @@ From a browser or any app:
 
 - **Default:** downloads and checks wait until Wi‑Fi (or Ethernet) is available.
 - **Settings → Allow mobile data** opts into cellular for polls + media.
-- **Settings → Request ignore battery optimizations** opens the system dialog. Without this, some OEMs still restrict background work even with a foreground service — treat it as recommended for long watches.
+- **Settings → Ignore battery optimizations** and **App info → Battery → Unrestricted** are the primary keep-alive path. On some Samsung builds, sideloaded apps never appear in Never sleeping apps → Add (+); do not rely on that list — use Unrestricted + ignore-optimizations instead.
 
 ---
 
