@@ -32,7 +32,14 @@ class WatchRepository(
     fun observeThread(id: String): Flow<WatchedThreadEntity?> = db.threads().observeById(id)
     fun observeRules(): Flow<List<WatchRuleEntity>> = db.rules().observeAll()
     fun observeActiveCount(): Flow<Int> = db.threads().observeActiveCount()
+    fun observeNeedsWatchingCount(): Flow<Int> = db.threads().observeNeedsWatchingCount()
     fun settings(): Flow<AppSettings> = settingsRepo.settings
+
+    /** True when FGS / keep-alive should keep the watcher alive. */
+    suspend fun needsWatching(): Boolean {
+        if (db.threads().countNeedsWatching() > 0) return true
+        return db.rules().countEnabled() > 0
+    }
 
     suspend fun currentSettings(): AppSettings = settingsRepo.settings.first()
 

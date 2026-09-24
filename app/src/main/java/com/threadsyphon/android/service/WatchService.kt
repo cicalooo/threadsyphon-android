@@ -24,10 +24,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Long-running watcher. Uses [ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE]
  * because always-on thread watching does not fit the Android 15 dataSync 6h/24h budget.
+ *
+ * Keep-alive: onTimeout / onDestroy / onTaskRemoved reschedule via [KeepAliveScheduler]
+ * (AlarmManager + WorkManager heartbeat) so OEM kill and FGS timeout do not leave watches dead
+ * until the user opens the UI.
  */
 class WatchService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -35,28 +40,43 @@ class WatchService : Service() {
     private var loopJob: Job? = null
     private var scoutJob: Job? = null
     private var activeObserverJob: Job? = null
+    /** When true, destroy/timeout should NOT reschedule (user paused / no watches). */
+    private var intentionalStop = false
 
     override fun onCreate() {
         super.onCreate()
         repo = (application as ThreadSyphonApp).repository
         NotificationHelper.ensureChannels(this)
+        Log.i(TAG, "onCreate")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "ACTION_STOP — intentional")
+            intentionalStop = true
+            KeepAliveScheduler.cancelAll(this)
             stopSelfSafely()
             return START_NOT_STICKY
         }
+        intentionalStop = false
         startAsForeground(0)
+        KeepAliveScheduler.scheduleHeartbeat(this)
         if (loopJob?.isActive != true) loopJob = scope.launch { watchLoop() }
         if (scoutJob?.isActive != true) scoutJob = scope.launch { scoutLoop() }
         if (activeObserverJob?.isActive != true) {
             activeObserverJob = scope.launch {
-                repo.observeActiveCount().collectLatest { count ->
+                // Include Ready/Error so service does not stop before first poll promotes status.
+                repo.observeNeedsWatchingCount().collectLatest { count ->
                     updateNotification(count)
                     if (count <= 0) {
                         delay(3_000)
-                        stopSelfSafely()
+                        val still = repo.needsWatching()
+                        if (!still) {
+                            Log.i(TAG, "no active watches — stopping")
+                            intentionalStop = true
+                            KeepAliveScheduler.cancelAll(this@WatchService)
+                            stopSelfSafely()
+                        }
                     }
                 }
             }
@@ -66,11 +86,29 @@ class WatchService : Service() {
 
     /**
      * Android 15+ safety net. specialUse is not under the dataSync 6h limit, but if the
-     * system still times us out we must stop promptly to avoid RemoteServiceException.
+     * system still times us out we must stop promptly, then reschedule a restart.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        Log.w(TAG, "onTimeout startId=$startId fgsType=$fgsType — stopping cleanly")
+        Log.w(TAG, "onTimeout startId=$startId fgsType=$fgsType — restarting via alarm")
+        if (!intentionalStop) {
+            val needs = runCatching { runBlocking { repo.needsWatching() } }.getOrDefault(true)
+            if (needs) {
+                KeepAliveScheduler.scheduleImmediateRestart(this, "onTimeout")
+            }
+        }
         stopSelfSafely()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "onTaskRemoved intentionalStop=$intentionalStop")
+        if (!intentionalStop) {
+            val needs = runCatching { runBlocking { repo.needsWatching() } }.getOrDefault(true)
+            if (needs) {
+                KeepAliveScheduler.scheduleImmediateRestart(this, "onTaskRemoved")
+                KeepAliveScheduler.scheduleHeartbeat(this)
+            }
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     private suspend fun watchLoop() {
@@ -95,7 +133,6 @@ class WatchService : Service() {
     private fun startAsForeground(activeCount: Int) {
         val notification = buildNotification(activeCount)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // API 34+: specialUse; fall back to dataSync only on older if constant missing — prefer specialUse from 34
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -136,6 +173,7 @@ class WatchService : Service() {
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.notif_pause_all), pause)
             .addAction(0, getString(R.string.notif_open), open)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -155,6 +193,14 @@ class WatchService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "onDestroy intentionalStop=$intentionalStop")
+        if (!intentionalStop) {
+            val needs = runCatching { runBlocking { repo.needsWatching() } }.getOrDefault(false)
+            if (needs) {
+                KeepAliveScheduler.scheduleImmediateRestart(this, "onDestroy")
+                KeepAliveScheduler.scheduleHeartbeat(this)
+            }
+        }
         scope.cancel()
         super.onDestroy()
     }
@@ -167,12 +213,25 @@ class WatchService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, WatchService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-            else context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "startForegroundService failed: ${e.message} — scheduling alarm restart")
+                KeepAliveScheduler.scheduleImmediateRestart(context, "startFailed:${e.javaClass.simpleName}")
+            }
         }
 
         fun stop(context: Context) {
-            context.startService(Intent(context, WatchService::class.java).setAction(ACTION_STOP))
+            KeepAliveScheduler.cancelAll(context)
+            try {
+                context.startService(Intent(context, WatchService::class.java).setAction(ACTION_STOP))
+            } catch (e: Exception) {
+                Log.w(TAG, "stop via startService failed: ${e.message}")
+            }
         }
     }
 }

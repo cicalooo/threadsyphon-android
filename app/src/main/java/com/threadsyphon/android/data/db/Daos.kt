@@ -50,6 +50,12 @@ interface ThreadDao {
 
     @Query("SELECT COUNT(*) FROM watched_threads WHERE status IN ('Watching','Downloading') AND hidden = 0")
     fun observeActiveCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM watched_threads WHERE status IN ('Ready','Watching','Downloading','Error') AND hidden = 0")
+    fun observeNeedsWatchingCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM watched_threads WHERE status IN ('Ready','Watching','Downloading','Error') AND hidden = 0")
+    suspend fun countNeedsWatching(): Int
 }
 
 @Dao
@@ -59,6 +65,9 @@ interface RuleDao {
 
     @Query("SELECT * FROM watch_rules WHERE enabled = 1")
     suspend fun getEnabled(): List<WatchRuleEntity>
+
+    @Query("SELECT COUNT(*) FROM watch_rules WHERE enabled = 1")
+    suspend fun countEnabled(): Int
 
     @Query("SELECT * FROM watch_rules")
     suspend fun getAll(): List<WatchRuleEntity>

@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
@@ -47,6 +49,8 @@
         <package android:name="com.amaze.filemanager" />
         <package android:name="nextapp.fx" />
         <package android:name="com.android.vending" />
+        <package android:name="com.samsung.android.lool" />
+        <package android:name="com.samsung.android.sm" />
     </queries>
 
     <application
@@ -114,6 +118,23 @@
             <intent-filter>
                 <action android:name="com.threadsyphon.android.action.PAUSE_ALL" />
                 <action android:name="com.threadsyphon.android.action.CHECK_ALL" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".service.WatchKeepAliveReceiver"
+            android:exported="true"
+            android:enabled="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.threadsyphon.android.action.KEEPALIVE_HEARTBEAT" />
+                <action android:name="com.threadsyphon.android.action.KEEPALIVE_RESTART" />
             </intent-filter>
         </receiver>
 
