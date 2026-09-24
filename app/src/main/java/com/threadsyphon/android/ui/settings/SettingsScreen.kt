@@ -340,15 +340,30 @@ fun SettingsScreen(repository: WatchRepository) {
                 ignoringBattery = BatteryHelper.isIgnoringBatteryOptimizations(context)
                 Toast.makeText(context, "Confirm unrestricted, then return", Toast.LENGTH_SHORT).show()
             }) { Text("Ignore battery optimizations") }
+            Text(
+                "Samsung Never sleeping apps: the list only shows apps already added. Tap + (or Add), find threadsyphon, then Add. It will not appear until you add it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
             OutlinedButton(onClick = {
-                val oem = BatteryHelper.openOemBackgroundAllowlist(context)
+                val result = BatteryHelper.openOemBackgroundAllowlist(context)
+                val msg = when (result) {
+                    BatteryHelper.OemOpenResult.SamsungNeverSleeping ->
+                        "Never sleeping list opened — tap +, pick threadsyphon, Add"
+                    BatteryHelper.OemOpenResult.SamsungBattery ->
+                        "Device Care Battery opened — Background usage limits → Never sleeping apps → +"
+                    BatteryHelper.OemOpenResult.AppDetails ->
+                        "Opened app info — Battery → Unrestricted (then add via Never sleeping +)"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }) { Text("Never sleeping apps (tap + to add)") }
+            OutlinedButton(onClick = {
+                BatteryHelper.openAppDetails(context)
                 Toast.makeText(
                     context,
-                    if (oem) "Open Never sleeping / background allow list and add threadsyphon"
-                    else "Opened app info — set battery to Unrestricted",
+                    "App info — Battery / Allow background → Unrestricted",
                     Toast.LENGTH_LONG,
                 ).show()
-            }) { Text("Samsung / OEM background settings") }
+            }) { Text("App info (battery for this app)") }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val exactOk = BatteryHelper.canScheduleExactAlarms(context)
                 Text(
@@ -361,9 +376,6 @@ fun SettingsScreen(repository: WatchRepository) {
                         BatteryHelper.openExactAlarmSettings(context)
                     }) { Text("Allow exact alarms") }
                 }
-            }
-            TextButton(onClick = { BatteryHelper.openAppDetails(context) }) {
-                Text("Open app info")
             }
 
             HorizontalDivider()
@@ -382,7 +394,7 @@ fun SettingsScreen(repository: WatchRepository) {
 
             HorizontalDivider()
             Text(
-                "threadsyphon Android 1.0.8 · Always watching · No account",
+                "threadsyphon Android 1.0.9 · Always watching · No account",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

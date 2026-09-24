@@ -1,11 +1,10 @@
-# Parent: signed v1.0.8 APK on Windows
+# Parent: signed v1.0.9 APK on Windows
 
 Executor Shell had **no machineId parameter** this turn (all commands ran on the Linux box).
 Signed assembleRelease + APK upload must run with machineId `70bb9179-4335-4fcc-bad9-a454c964a3d7`.
 
-- Feature commit: `a911dcc22426706e022f4e3b922de61d299ff0e5`
-- Build tip (include WorkManager fix): `8b53a202648f10ac318faf97e4e404ba8a831502` (or later main; pull --ff-only)
-- Release (notes only until signed APK uploaded): https://github.com/cicalooo/threadsyphon-android/releases/tag/v1.0.8
+- Feature commit: see `git log -1 --format=%H` on main after pull (Samsung Never sleeping deep-link fix)
+- Release (notes only until signed APK uploaded): https://github.com/cicalooo/threadsyphon-android/releases/tag/v1.0.9
 - Do not publish the unsigned box APK over signed installs.
 - Box verified compile: `app-release-unsigned.apk` (no keystore on box).
 
@@ -18,8 +17,8 @@ $env:JAVA_HOME = 'C:\Users\cyka\.jdks\jbr-21.0.11'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 .\gradlew.bat :app:assembleRelease --no-daemon
 New-Item -ItemType Directory -Force -Path 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks' | Out-Null
-Copy-Item 'app\build\outputs\apk\release\app-release.apk' 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.8-release.apk' -Force
-gh release upload v1.0.8 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.8-release.apk' --clobber --repo cicalooo/threadsyphon-android
+Copy-Item 'app\build\outputs\apk\release\app-release.apk' 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.9-release.apk' -Force
+gh release upload v1.0.9 'C:\Users\cyka\Documents\Code\threadsyphon-android-apks\threadsyphon-android-1.0.9-release.apk' --clobber --repo cicalooo/threadsyphon-android
 ```
 
-Or: `.\scripts\build-release-1.0.8.ps1` then the `gh release upload` line above.
+Or: `.\scripts\build-release-1.0.9.ps1` then the `gh release upload` line above.
